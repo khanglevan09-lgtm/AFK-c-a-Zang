@@ -18,8 +18,7 @@ function createBot() {
     host: 'vangioinetwork.xyz', // SỬA: Thay IP server của bạn vào đây
     port: 25565,               // SỬA: Thay port nếu server có port riêng
     username: 'Kiru',   // SỬA: Tên nhân vật bot của bạn
-    version: '1.21.4',         // Phiên bản Minecraft
-    auth: 'offline'            // Chế độ dành cho server crack/offline
+    version: false ,         // Phiên bản Minecraft            
   })
 
   bot.on('spawn', () => {
