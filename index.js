@@ -14,9 +14,9 @@ app.listen(port, () => {
 
 function createBot() {
   const bot = mineflayer.createBot({
-    host: 'IP_SERVER_CUA_BAN',
+    host: 'vangioinetwork.xyz',
     port: 25565,
-    username: 'Ten_Bot_AFK',
+    username: 'Kiru',
     version: false
   })
 
@@ -24,7 +24,7 @@ function createBot() {
     console.log('Bot da vao server thành công!')
     
     setTimeout(() => {
-      bot.chat('/login MAT_KHAU_CUA_BAN')
+      bot.chat('/login Kiru2000@')
     }, 3000)
 
     setTimeout(() => {
