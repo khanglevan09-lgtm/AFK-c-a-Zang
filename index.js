@@ -15,7 +15,7 @@ app.listen(port, () => {
 
 function createBot() {
   const bot = mineflayer.createBot({
-    host: 'vangoinetwork.xyz', // SỬA: Thay IP server của bạn vào đây
+    host: 'vangioinetwork.xyz', // SỬA: Thay IP server của bạn vào đây
     port: 25565,               // SỬA: Thay port nếu server có port riêng
     username: 'Kiru',   // SỬA: Tên nhân vật bot của bạn
     version: '1.21.4',         // Phiên bản Minecraft
