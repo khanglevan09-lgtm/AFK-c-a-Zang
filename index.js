@@ -4,15 +4,15 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 10000;
 
-// --- CẤU HÌNH BOT (TỐI ƯU CHO AFK MODE) ---
+// --- CẤU HÌNH BOT (ĐÃ BẬT LẠI VẬT LÝ 3D) ---
 const OPTIONS = {
   host: 'vangioinetwork.xyz', 
   port: 19000,               
   username: 'Kiru',   
   hideErrors: true,
   checkTimeoutInterval: 120 * 1000,
-  physicsEnabled: false,            // Tắt vật lý 3D để Server tự do đẩy bot đi trong AFK zone
-  viewDistance: 'tiny'              // Giảm tầm nhìn tối đa để tiết kiệm RAM
+  physicsEnabled: true,             // ✅ ĐÃ KÍCH HOẠT LẠI VẬT LÝ 3D để nhận lực đẩy di chuyển
+  viewDistance: 'tiny'              // Giữ tầm nhìn nhỏ để tiết kiệm RAM khi bật physics
 };
 
 // --- QUẢN LÝ TRẠNG THÁI TOÀN CỤC ---
@@ -40,7 +40,7 @@ let lastClickTime = Date.now();
 let currentCoords = 'Đang xác định...';
 let lastPosition = null;
 let positionStagnantCount = 0;
-const collectedItems = {}; // Lưu số lượng item đã nhặt
+const collectedItems = {}; 
 const serverChatLogs = [];
 const startTime = Date.now();
 
@@ -49,7 +49,7 @@ function addChatLog(msg) {
   if (serverChatLogs.length > 15) serverChatLogs.pop();
 }
 
-// --- BẢNG ĐIỀU KHIỂN WEB DASHBOARD (REFRESH MỖI 5s) ---
+// --- BẢNG ĐIỀU KHIỂN WEB DASHBOARD ---
 app.get('/', (req, res) => {
   const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
@@ -107,7 +107,7 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port}`));
 
-// --- HÀM DỌN DẸP TIÊU DIỆT BỘ NHỚ THỪA ---
+// --- HÀM DỌN DẸP BỘ NHỚ ---
 function cleanupBot() {
   isClicking = false;
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
@@ -143,7 +143,7 @@ function cleanupBot() {
   }
 }
 
-// --- AUTO CLICKER (Vòng lập 1 giây/lần) ---
+// --- AUTO CLICKER (1s/lần) ---
 function startAutoClicker() {
   if (clickInterval) clearInterval(clickInterval);
   isClicking = true;
@@ -191,7 +191,7 @@ function createBot() {
     if (isFirstSpawn) {
       isFirstSpawn = false;
 
-      // 1. CHUỖI ĐĂNG NHẬP
+      // 1. CHUỖI ĐĂNG NHẬP (10s -> 20s -> 40s)
       loginTimer1 = setTimeout(() => {
         if (bot && bot._client && !bot._client.socket.destroyed) {
           bot.chat('/l Kiru2000@');
@@ -220,7 +220,7 @@ function createBot() {
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
-        const memAfter = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+        const memAfter = (processmemoryUsage().heapUsed / 1024 / 1024).toFixed(2);
         console.log(`[DỌN RAM] 🧹 Dọn RAM chu kỳ 2 phút: ${memBefore}MB -> ${memAfter}MB`);
       }, 120 * 1000);
 
@@ -236,16 +236,16 @@ function createBot() {
         }
       }, 180 * 1000);
 
-      // 4. KIỂM TRA TỌA ĐỘ VÀ BÁO LẠI MỖI 10 GIÂY
+      // 4. KIỂM TRA TỌA ĐỘ MỖI 10 GIÂY (Hiển thị chi tiết chữ số thập phân)
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
-          currentCoords = `X: ${Math.round(pos.x)}, Y: ${Math.round(pos.y)}, Z: ${Math.round(pos.z)}`;
+          currentCoords = `X: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
           console.log(`[TỌA ĐỘ] 📍 ${currentCoords}`);
         }
       }, 10 * 1000);
 
-      // 5. TỰ KIỂM TRA CLICKER
+      // 5. AUTO CLICKER WATCHDOG (Tự kích hoạt lại nếu ngừng)
       clickWatchdogInterval = setInterval(() => {
         const timeDiff = Date.now() - lastClickTime;
         if (!isClicking || timeDiff > 4000) {
@@ -255,17 +255,19 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 6. KIỂM TRA BOT CÓ BỊ ĐỨNG IM (Nếu đứng yên 2 lần kiểm tra -> Gửi /tusat)
+      // 6. KIỂM TRA BOT ĐỨNG IM (Đứng yên 2 lần liên tiếp -> Gửi /tusat)
       afkStagnantCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
-          if (lastPosition && Math.abs(pos.x - lastPosition.x) < 0.5 && Math.abs(pos.z - lastPosition.z) < 0.5) {
+          
+          // So sánh tọa độ thực tế có biến động quá 0.2 block không
+          if (lastPosition && Math.abs(pos.x - lastPosition.x) < 0.2 && Math.abs(pos.z - lastPosition.z) < 0.2) {
             positionStagnantCount++;
-            console.log(`[AFK CHECK] ⚠️ Bot đứng yên lần ${positionStagnantCount}/2`);
+            console.log(`[AFK CHECK] ⚠️ Bot không di chuyển lần ${positionStagnantCount}/2`);
             
             if (positionStagnantCount >= 2) { 
-              console.log('[AFK CHECK] ☠️ Bot không di chuyển 2 lần liên tiếp -> Thực hiện /tusat!');
-              addChatLog('☠️ Bot bị kẹt / không di chuyển 2 lần -> Gửi /tusat');
+              console.log('[AFK CHECK] ☠️ Bot kẹt tọa độ 2 lần liên tiếp -> Thực hiện /tusat!');
+              addChatLog('☠️ Bot không di chuyển 2 lần -> Gửi /tusat');
               bot.chat('/tusat');
               positionStagnantCount = 0;
             }
@@ -274,9 +276,9 @@ function createBot() {
           }
           lastPosition = { x: pos.x, y: pos.y, z: pos.z };
         }
-      }, 60 * 1000); // Mỗi phút kiểm tra 1 lần
+      }, 60 * 1000); 
 
-      // 7. CHỐNG ANTI-BOT (Xoay góc nhìn nhẹ mỗi 12 giây)
+      // 7. CHỐNG ANTI-BOT (Nhích nhẹ góc nhìn ngẫu nhiên mỗi 12s)
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client && !bot._client.socket.destroyed) {
           try {
@@ -289,7 +291,7 @@ function createBot() {
     }
   });
 
-  // TỰ ĐỘNG HỒI SINH KHI CHẾT (DÙNG /TUSAT HOẶC CHẾT DO Mobs)
+  // TỰ ĐỘNG HỒI SINH KHI CHẾT Hoặc DÙNG /TUSAT
   bot.on('death', () => {
     console.log('[TRẠNG THÁI] 💀 Bot đã chết! Chuẩn bị hồi sinh...');
     addChatLog('💀 Bot đã chết! Tự động hồi sinh sau 2s...');
@@ -300,11 +302,10 @@ function createBot() {
       }
     }, 2000);
 
-    // Sau khi hồi sinh 5s, tự động vào lại /afkmode vao
     setTimeout(() => {
       if (bot && bot._client && !bot._client.socket.destroyed) {
         bot.chat('/afkmode vao');
-        addChatLog('⌨️ Đã hồi sinh xong -> Gửi lại lệnh /afkmode vao');
+        addChatLog('⌨️ Hồi sinh hoàn tất -> Gửi lại lệnh /afkmode vao');
       }
     }, 7000);
   });
@@ -378,7 +379,7 @@ function handleReconnect() {
 
 createBot();
 
-// CHỐNG CRASH HỆ THỐNG CẤP CAO
+// CHỐNG CRASH HỆ THỐNG
 process.on('uncaughtException', (err) => {
   if (err.name === 'PartialReadError' || (err.message && err.message.includes('packet_world_particles'))) return;
   if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'EPIPE' || err.code === 'ENOTFOUND') return;
@@ -388,3 +389,4 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.log('[LỖI PROMISE UNHANDLED]:', reason);
 });
+  
