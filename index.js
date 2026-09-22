@@ -46,7 +46,6 @@ let currentCoords = 'Đang xác định...';
 let collectedCount = 0;
 let totalHits = 0;
 let totalDamageDealt = 0;
-let targetPrevHealth = {};
 const serverChatLogs = [];
 const startTime = Date.now();
 
@@ -61,6 +60,30 @@ function triggerChatWindow(durationMs = 8000) {
   commandResponseTimer = setTimeout(() => {
     isAwaitingResponse = false;
   }, durationMs);
+}
+
+// --- TÍNH SÁT THƯƠNG DỰA TRÊN VŨ KHÍ CẦM TRÊN TAY ---
+function getHeldWeaponDamage(botInstance) {
+  if (!botInstance || !botInstance.heldItem) return 1; // Tay không = 1 HP (0.5 tim)
+
+  const itemName = botInstance.heldItem.name.toLowerCase();
+
+  // Kiếm (Swords)
+  if (itemName.includes('netherite_sword')) return 8;
+  if (itemName.includes('diamond_sword')) return 7;
+  if (itemName.includes('iron_sword')) return 6;
+  if (itemName.includes('stone_sword')) return 5;
+  if (itemName.includes('wooden_sword') || itemName.includes('golden_sword')) return 4;
+
+  // Rìu (Axes - Sát thương đơn đòn cao hơn)
+  if (itemName.includes('netherite_axe')) return 10;
+  if (itemName.includes('diamond_axe')) return 9;
+  if (itemName.includes('iron_axe')) return 9;
+  if (itemName.includes('stone_axe')) return 9;
+  if (itemName.includes('wooden_axe') || itemName.includes('golden_axe')) return 7;
+
+  // Cúp/Xẻng/Món khác
+  return 2;
 }
 
 // --- API XỬ LÝ LỆNH TỪ WEB DASHBOARD ---
@@ -81,6 +104,7 @@ app.post('/api/command', (req, res) => {
 app.get('/', (req, res) => {
   const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+  const currentWeapon = (bot && bot.heldItem) ? bot.heldItem.displayName : 'Tay không';
 
   res.send(`
     <!DOCTYPE html>
@@ -99,7 +123,7 @@ app.get('/', (req, res) => {
         input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #475569; background: #0f172a; color: white; }
         button { padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background: #2563eb; }
-        .stat-highlight { color: #f43f5e; font-weight: bold; font-size: 1.1em; }
+        .stat-highlight { color: #f43f5e; font-weight: bold; font-size: 1.2em; }
       </style>
       <script>
         setInterval(() => { 
@@ -118,13 +142,14 @@ app.get('/', (req, res) => {
         <p>🟢 <b>Kết nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : '<span class="badge-off">ĐANG RECONNECT</span>'}</p>
         <p>🖱️ <b>Auto Clicker:</b> ${isClicking ? '<span class="badge-on">ĐANG CHẠY</span>' : '<span class="badge-off">TẮT</span>'}</p>
         <p>📍 <b>Tọa độ:</b> <code>${currentCoords}</code></p>
+        <p>🗡️ <b>Vũ khí đang cầm:</b> <code>${currentWeapon}</code></p>
         <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB / 512 MB</p>
       </div>
 
       <div class="card">
-        <h3>⚔️ Thống Kê Chiến Đấu & Sát Thương</h3>
-        <p>💥 <b>Đòn đánh chính xác:</b> ${totalHits} lần hit</p>
-        <p>🗡️ <b>Tổng sát thương gây ra:</b> <span class="stat-highlight">${totalDamageDealt.toFixed(1)} HP</span></p>
+        <h3>⚔️ Thống Kê Sát Thương Tấn Công</h3>
+        <p>🎯 <b>Tổng đòn đánh trúng mục tiêu:</b> ${totalHits} đòn</p>
+        <p>💥 <b>Tổng sát thương đã gây ra:</b> <span class="stat-highlight">${totalDamageDealt} HP</span> (${(totalDamageDealt / 2).toFixed(1)} Tim)</p>
         <p>📦 <b>Tổng lượt nhặt đồ:</b> ${collectedCount} lần</p>
       </div>
 
@@ -187,35 +212,28 @@ function startAutoClicker() {
       return;
     }
     try {
-      // 1. Quét tìm mob/entity trong phạm vi đánh (4.5 blocks)
+      // Tìm mob hoặc người chơi khác trong bán kính 4.5 block
       const target = bot.nearestEntity(e => 
-        (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal') &&
+        (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
         e.position && bot.entity && bot.entity.position &&
+        e.id !== bot.entity.id &&
         e.position.distanceTo(bot.entity.position) <= 4.5
       );
 
       if (target) {
-        // Tấn công trực tiếp thực thể
+        // Tấn công thực thể
         bot.attack(target);
+        
+        // Tính toán sát thương chắc chắn gây ra theo vũ khí trên tay
+        const hitDamage = getHeldWeaponDamage(bot);
         totalHits++;
-
-        // Lưu lượng máu trước đòn đánh
-        if (target.health !== undefined) {
-          targetPrevHealth[target.id] = target.health;
-        } else {
-          // Nếu server không công khai máu entity, tính sát thương ước lượng mặc định (5 HP)
-          totalDamageDealt += 5;
-        }
+        totalDamageDealt += hitDamage;
+      } else {
+        // Nếu không có mob xung quanh -> Vung tay giữ kết nối AFK
+        bot.swingArm('right');
       }
 
-      // 2. Vung tay tạo gói tin giữ AFK
-      bot.swingArm('right');
       lastClickTime = Date.now();
-
-      // Dọn dẹp Cache theo dõi máu định kỳ
-      if (Object.keys(targetPrevHealth).length > 100) {
-        targetPrevHealth = {};
-      }
     } catch (err) {}
   }, 1000);
 }
@@ -289,7 +307,7 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 5. CHỐNG ANTI-BOT
+      // 5. CHỐNG ANTI-BOT (Nhích góc nhìn nhẹ)
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client) {
           try {
@@ -300,43 +318,6 @@ function createBot() {
         }
       }, 12 * 1000);
     }
-  });
-
-  // BẮT SÁT THƯƠNG KHI MÁU MOB GIẢM
-  bot.on('entityHurt', (entity) => {
-    try {
-      if (!bot || !bot.entity) return;
-      const dist = entity.position ? entity.position.distanceTo(bot.entity.position) : 99;
-      
-      // Nếu thực thể bị thương nằm trong tầm đánh của Bot
-      if (dist <= 4.5 && entity.id !== bot.entity.id) {
-        const prevHp = targetPrevHealth[entity.id];
-        if (prevHp !== undefined && entity.health !== undefined) {
-          const damage = prevHp - entity.health;
-          if (damage > 0) {
-            totalDamageDealt += damage;
-          }
-          targetPrevHealth[entity.id] = entity.health;
-        }
-      }
-    } catch (e) {}
-  });
-
-  // BẮT SÁT THƯƠNG TỪ THANH ACTIONBAR (NẾU SERVER CÓ HỔ TRỢ KHỦNG TỪ PLUGIN)
-  bot.on('actionBar', (message) => {
-    try {
-      const text = message.toString().trim();
-      if (!text) return;
-      
-      // Tìm số sát thương ví dụ: -15 HP hoặc 15 Sát thương
-      const match = text.match(/-?(\d+(\.\d+)?)\s*(hp|sát thương|damage)/i);
-      if (match && match[1]) {
-        const dmg = parseFloat(match[1]);
-        if (!isNaN(dmg) && dmg > 0) {
-          totalDamageDealt += dmg;
-        }
-      }
-    } catch (e) {}
   });
 
   // TỰ ĐỘNG HỒI SINH
@@ -408,7 +389,7 @@ function handleReconnect() {
 
   console.log(`⏳ Đang chờ 5 giây để kết nối lại...`);
   reconnectTimeout = setTimeout(() => {
-    isReconnecting = false; // Reset cờ trước khi khởi tạo lại Bot mới
+    isReconnecting = false;
     createBot();
   }, 5000);
 }
