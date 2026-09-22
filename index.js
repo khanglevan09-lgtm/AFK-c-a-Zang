@@ -24,7 +24,6 @@ let bot = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
 let isFirstSpawn = true;
-let allowStagnantCheck = false;
 
 // Quản lý Chat & Lệnh Web
 let isAwaitingResponse = false;
@@ -38,15 +37,16 @@ let posCheckInterval = null;
 let clickWatchdogInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
-let loginTimer3 = null;
 let respawnTimer = null;
 
-// Dữ liệu Realtime
+// Dữ liệu Realtime & Sát Thương
 let isClicking = false;
 let lastClickTime = Date.now();
 let currentCoords = 'Đang xác định...';
-let lastPosition = null;
-const collectedItems = {};
+let collectedCount = 0;
+let totalHits = 0;
+let totalDamageDealt = 0;
+let targetPrevHealth = {};
 const serverChatLogs = [];
 const startTime = Date.now();
 
@@ -82,14 +82,6 @@ app.get('/', (req, res) => {
   const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
 
-  let itemsHTML = '<i>Chưa nhặt được vật phẩm nào...</i>';
-  const itemKeys = Object.keys(collectedItems);
-  if (itemKeys.length > 0) {
-    itemsHTML = '<ul style="margin: 5px 0; padding-left: 20px;">' +
-      itemKeys.map(k => `<li><b>${k}</b>: x${collectedItems[k]}</li>`).join('') +
-      '</ul>';
-  }
-
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -107,6 +99,7 @@ app.get('/', (req, res) => {
         input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #475569; background: #0f172a; color: white; }
         button { padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background: #2563eb; }
+        .stat-highlight { color: #f43f5e; font-weight: bold; font-size: 1.1em; }
       </style>
       <script>
         setInterval(() => { 
@@ -118,7 +111,7 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
-      <h2>🤖 Minecraft AFK Bot (Render Ready)</h2>
+      <h2>🤖 Minecraft AFK Bot Dashboard</h2>
       
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
@@ -129,16 +122,18 @@ app.get('/', (req, res) => {
       </div>
 
       <div class="card">
-        <h3>⚙️ Bảng Điều Khiển Lệnh Direct</h3>
-        <form class="input-group" action="/api/command" method="POST">
-          <input type="text" id="cmd-input" name="command" placeholder="Nhập lệnh (vd: /spawn) hoặc chat..." autocomplete="off" required>
-          <button type="submit">Gửi Lệnh</button>
-        </form>
+        <h3>⚔️ Thống Kê Chiến Đấu & Sát Thương</h3>
+        <p>💥 <b>Đòn đánh chính xác:</b> ${totalHits} lần hit</p>
+        <p>🗡️ <b>Tổng sát thương gây ra:</b> <span class="stat-highlight">${totalDamageDealt.toFixed(1)} HP</span></p>
+        <p>📦 <b>Tổng lượt nhặt đồ:</b> ${collectedCount} lần</p>
       </div>
 
       <div class="card">
-        <h3>🎒 Thống Kê Vật Phẩm</h3>
-        ${itemsHTML}
+        <h3>⚙️ Bảng Điều Khiển Lệnh Direct</h3>
+        <form class="input-group" action="/api/command" method="POST">
+          <input type="text" id="cmd-input" name="command" placeholder="Nhập lệnh (vd: /afkmode vao) hoặc chat..." autocomplete="off" required>
+          <button type="submit">Gửi Lệnh</button>
+        </form>
       </div>
 
       <div class="card">
@@ -157,12 +152,11 @@ app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port
 // --- HÀM DỌN DẸP BỘ NHỚ VÀ SOCKET ---
 function cleanupBot() {
   isClicking = false;
-  allowStagnantCheck = false;
 
   const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
 
-  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, loginTimer3, respawnTimer, commandResponseTimer];
+  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
   timeouts.forEach(t => t && clearTimeout(t));
 
   if (bot) {
@@ -182,11 +176,10 @@ function cleanupBot() {
   }
 }
 
-// --- AUTO CLICKER ---
+// --- AUTO CLICKER TẤN CÔNG & TÍNH SÁT THƯƠNG ---
 function startAutoClicker() {
   if (clickInterval) clearInterval(clickInterval);
   isClicking = true;
-  let clickState = 'left';
 
   clickInterval = setInterval(() => {
     if (!bot || !bot._client || bot._client.socket.destroyed) {
@@ -194,14 +187,35 @@ function startAutoClicker() {
       return;
     }
     try {
-      if (clickState === 'left') {
-        bot.swingArm('right');
-        clickState = 'right';
-      } else {
-        bot.activateItem();
-        clickState = 'left';
+      // 1. Quét tìm mob/entity trong phạm vi đánh (4.5 blocks)
+      const target = bot.nearestEntity(e => 
+        (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal') &&
+        e.position && bot.entity && bot.entity.position &&
+        e.position.distanceTo(bot.entity.position) <= 4.5
+      );
+
+      if (target) {
+        // Tấn công trực tiếp thực thể
+        bot.attack(target);
+        totalHits++;
+
+        // Lưu lượng máu trước đòn đánh
+        if (target.health !== undefined) {
+          targetPrevHealth[target.id] = target.health;
+        } else {
+          // Nếu server không công khai máu entity, tính sát thương ước lượng mặc định (5 HP)
+          totalDamageDealt += 5;
+        }
       }
+
+      // 2. Vung tay tạo gói tin giữ AFK
+      bot.swingArm('right');
       lastClickTime = Date.now();
+
+      // Dọn dẹp Cache theo dõi máu định kỳ
+      if (Object.keys(targetPrevHealth).length > 100) {
+        targetPrevHealth = {};
+      }
     } catch (err) {}
   }, 1000);
 }
@@ -225,10 +239,8 @@ function createBot() {
   bot.on('spawn', () => {
     console.log('[LOG] ✅ Bot đã vào server!');
     addChatLog('✅ Đã kết nối vào Server!');
-    isReconnecting = false;
-    triggerChatWindow(15000);
+    triggerChatWindow(12000);
 
-    // BẢO VỆ SOCKET TCP: Gửi packet giữ kết nối 10s/lần chống lỗi socketClosed
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setKeepAlive(true, 10000);
@@ -242,28 +254,17 @@ function createBot() {
       loginTimer1 = setTimeout(() => {
         if (bot && bot._client) {
           bot.chat('/l Kiru2000@');
-          triggerChatWindow(5000);
+          triggerChatWindow(4000);
         }
-      }, 10000);
+      }, 3000);
 
       loginTimer2 = setTimeout(() => {
         if (bot && bot._client) {
           bot.chat('/afkmode vao');
-          triggerChatWindow(5000);
-        }
-      }, 20000);
-
-      loginTimer3 = setTimeout(() => {
-        if (bot && bot._client) {
-          bot.chat('/afkmode vao');
-          triggerChatWindow(5000);
+          triggerChatWindow(6000);
           startAutoClicker();
-          allowStagnantCheck = true;
-          if (bot.entity && bot.entity.position) {
-            lastPosition = { ...bot.entity.position };
-          }
         }
-      }, 40000);
+      }, 6000);
 
       // 2. DỌN BỘ NHỚ RAM
       ramGcInterval = setInterval(() => {
@@ -272,31 +273,15 @@ function createBot() {
         }
       }, 60 * 1000);
 
-      // 3. THAY THẾ LỆNH /TUSAT THÀNH /AFKMODE VAO KHI ĐỨNG YÊN HOẶC KẸT
+      // 3. TỌA ĐỘ REALTIME
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
           currentCoords = `X: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
-          
-          if (allowStagnantCheck && lastPosition) {
-            const dx = pos.x - lastPosition.x;
-            const dy = pos.y - lastPosition.y;
-            const dz = pos.z - lastPosition.z;
-            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-            // Nếu Bot di chuyển < 3.0 block trong 20s -> Tự động gửi /afkmode vao để vào lại khu AFK
-            if (distance < 3.0) {
-              console.log('[AFK CHECK] 🔄 Gửi lại /afkmode vao...');
-              addChatLog(`🔄 Đứng yên (<3m) -> Gửi lệnh /afkmode vao`);
-              bot.chat('/afkmode vao');
-              triggerChatWindow(5000);
-            }
-          }
-          lastPosition = { x: pos.x, y: pos.y, z: pos.z };
         }
-      }, 20 * 1000); // Kiểm tra mỗi 20 giây để không bị spam lệnh
+      }, 5 * 1000);
 
-      // 4. AUTO CLICKER WATCHDOG
+      // 4. WATCHDOG AUTO CLICKER
       clickWatchdogInterval = setInterval(() => {
         const timeDiff = Date.now() - lastClickTime;
         if (!isClicking || timeDiff > 4000) {
@@ -304,7 +289,7 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 5. CHỐNG ANTI-BOT (Xoay góc nhìn nhẹ)
+      // 5. CHỐNG ANTI-BOT
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client) {
           try {
@@ -317,10 +302,46 @@ function createBot() {
     }
   });
 
+  // BẮT SÁT THƯƠNG KHI MÁU MOB GIẢM
+  bot.on('entityHurt', (entity) => {
+    try {
+      if (!bot || !bot.entity) return;
+      const dist = entity.position ? entity.position.distanceTo(bot.entity.position) : 99;
+      
+      // Nếu thực thể bị thương nằm trong tầm đánh của Bot
+      if (dist <= 4.5 && entity.id !== bot.entity.id) {
+        const prevHp = targetPrevHealth[entity.id];
+        if (prevHp !== undefined && entity.health !== undefined) {
+          const damage = prevHp - entity.health;
+          if (damage > 0) {
+            totalDamageDealt += damage;
+          }
+          targetPrevHealth[entity.id] = entity.health;
+        }
+      }
+    } catch (e) {}
+  });
+
+  // BẮT SÁT THƯƠNG TỪ THANH ACTIONBAR (NẾU SERVER CÓ HỔ TRỢ KHỦNG TỪ PLUGIN)
+  bot.on('actionBar', (message) => {
+    try {
+      const text = message.toString().trim();
+      if (!text) return;
+      
+      // Tìm số sát thương ví dụ: -15 HP hoặc 15 Sát thương
+      const match = text.match(/-?(\d+(\.\d+)?)\s*(hp|sát thương|damage)/i);
+      if (match && match[1]) {
+        const dmg = parseFloat(match[1]);
+        if (!isNaN(dmg) && dmg > 0) {
+          totalDamageDealt += dmg;
+        }
+      }
+    } catch (e) {}
+  });
+
   // TỰ ĐỘNG HỒI SINH
   bot.on('death', () => {
     addChatLog('💀 Bot chết! Hồi sinh sau 2s...');
-    allowStagnantCheck = false;
 
     respawnTimer = setTimeout(() => {
       if (bot && bot._client) {
@@ -332,35 +353,21 @@ function createBot() {
           bot.chat('/afkmode vao');
           addChatLog('⌨️ Hồi sinh xong -> Gửi /afkmode vao');
           triggerChatWindow(5000);
-          if (bot.entity && bot.entity.position) {
-            lastPosition = { ...bot.entity.position };
-          }
-          allowStagnantCheck = true;
         }
-      }, 5000);
+      }, 4000);
     }, 2000);
   });
 
-  // NHẶT ĐỒ
-  bot.on('playerCollect', (collector, itemEntity) => {
+  // ĐẾM LƯỢT NHẶT ĐỒ
+  bot.on('playerCollect', (collector) => {
     try {
       if (collector && bot.entity && collector.id === bot.entity.id) {
-        let itemName = 'Vật phẩm';
-        if (itemEntity && itemEntity.metadata) {
-          const metaVals = Object.values(itemEntity.metadata);
-          for (const val of metaVals) {
-            if (val && typeof val === 'object' && val.displayName) {
-              itemName = val.displayName;
-              break;
-            }
-          }
-        }
-        collectedItems[itemName] = (collectedItems[itemName] || 0) + 1;
+        collectedCount++;
       }
     } catch (e) {}
   });
 
-  // LỌC CHAT
+  // NHẬT KÝ CHAT
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
@@ -376,10 +383,10 @@ function createBot() {
     } catch (e) {}
   });
 
-  // XỬ LÝ MẤT KẾT NỐI (LÀM SẠCH SOCKET VÀ RECONNECT TỰ ĐỘNG)
+  // XỬ LÝ MẤT KẾT NỐI
   bot.on('end', (reason) => {
     if (reason === 'socketClosed') {
-      addChatLog('🔄 Server đóng kết nối (socketClosed). Đang kết nối lại sau 5s...');
+      addChatLog('🔄 Server đóng kết nối (socketClosed). Reconnect sau 5s...');
     } else {
       addChatLog(`❌ Rớt mạng: ${reason}`);
     }
@@ -401,6 +408,7 @@ function handleReconnect() {
 
   console.log(`⏳ Đang chờ 5 giây để kết nối lại...`);
   reconnectTimeout = setTimeout(() => {
+    isReconnecting = false; // Reset cờ trước khi khởi tạo lại Bot mới
     createBot();
   }, 5000);
 }
