@@ -13,7 +13,7 @@ const OPTIONS = {
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 30 * 1000, // Phát hiện mất kết nối nhanh hơn (30s)
+  checkTimeoutInterval: 30 * 1000,
   keepAlive: true,
   physicsEnabled: true,
   viewDistance: 'tiny'
@@ -202,19 +202,16 @@ function startAutoActions() {
   if (sneakInterval) clearInterval(sneakInterval);
   isAutoActionRunning = true;
 
-  // 1. Luôn giữ nút W (Tiến lên)
   if (bot) {
     bot.setControlState('forward', true);
   }
 
-  // 2. Click Chuột Trái & Phải chu kỳ mỗi 0.5 giây (500ms)
   clickInterval = setInterval(() => {
     if (!bot || !bot._client || bot._client.socket.destroyed) {
       isAutoActionRunning = false;
       return;
     }
     try {
-      // --- Click Trái (Attack nếu có mob trong phạm vi, hoặc Swing arm) ---
       const target = bot.nearestEntity(e => 
         (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
         e.position && bot.entity && bot.entity.position &&
@@ -225,19 +222,17 @@ function startAutoActions() {
       if (target) {
         bot.attack(target);
       } else {
-        bot.swingArm('right'); // Click trái không khí
+        bot.swingArm('right');
       }
 
-      // --- Click Phải (Sử dụng vật phẩm trên tay) ---
       try {
-        bot.activateItem(); // Click chuột phải
+        bot.activateItem();
       } catch (err) {}
 
       lastClickTime = Date.now();
     } catch (err) {}
   }, 500);
 
-  // 3. Tự động Ngồi (Shift) chu kỳ mỗi 1 giây (1000ms)
   sneakInterval = setInterval(() => {
     if (!bot || !bot._client || bot._client.socket.destroyed) return;
     try {
@@ -270,7 +265,6 @@ function createBot() {
     addChatLog('✅ Đã kết nối vào Server!');
     triggerChatWindow(12000);
 
-    // Kích hoạt di chuyển W ngay khi vừa spawn
     bot.setControlState('forward', true);
 
     if (bot._client && bot._client.socket) {
@@ -282,7 +276,6 @@ function createBot() {
     if (isFirstSpawn) {
       isFirstSpawn = false;
 
-      // 1. CHUỖI ĐĂNG NHẬP
       loginTimer1 = setTimeout(() => {
         if (bot && bot._client) {
           bot.chat('/l Kiru2000@');
@@ -298,14 +291,12 @@ function createBot() {
         }
       }, 6000);
 
-      // 2. DỌN BỘ NHỚ RAM
       ramGcInterval = setInterval(() => {
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
       }, 60 * 1000);
 
-      // 3. TỌA ĐỘ REALTIME
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
@@ -313,18 +304,15 @@ function createBot() {
         }
       }, 5 * 1000);
 
-      // 4. WATCHDOG AUTO ACTION
       clickWatchdogInterval = setInterval(() => {
         const timeDiff = Date.now() - lastClickTime;
         if (!isAutoActionRunning || timeDiff > 4000) {
           startAutoActions();
         } else if (bot) {
-          // Đảm bảo nút W luôn bật
           bot.setControlState('forward', true);
         }
       }, 15 * 1000);
 
-      // 5. CHỐNG ANTI-BOT (Nhích góc nhìn nhẹ)
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client) {
           try {
@@ -335,7 +323,6 @@ function createBot() {
         }
       }, 12 * 1000);
 
-      // 6. WATCHDOG CHỐNG TREO BẰNG THỜI GIAN SERVER
       freezeWatchdogInterval = setInterval(() => {
         if (!bot || !bot.time) return;
         
@@ -353,7 +340,6 @@ function createBot() {
     }
   });
 
-  // TỰ ĐỘNG HỒI SINH
   bot.on('death', () => {
     addChatLog('💀 Bot chết! Hồi sinh sau 2s...');
 
@@ -373,7 +359,6 @@ function createBot() {
     }, 2000);
   });
 
-  // ĐẾM LƯỢT NHẶT ĐỒ
   bot.on('playerCollect', (collector) => {
     try {
       if (collector && bot.entity && collector.id === bot.entity.id) {
@@ -382,13 +367,24 @@ function createBot() {
     } catch (e) {}
   });
 
-  // NHẬT KÝ CHAT
+  // NHẬT KÝ CHAT - ĐÃ BỔ SUNG BỘ LỌC BỎ SPAM "HỒI CHIÊU" & PROGRESS BAR
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
       if (!text) return;
 
       const lowerText = text.toLowerCase();
+
+      // Bỏ qua tin nhắn có chứa thanh tiến trình (█), hoặc chứa từ khóa hồi chiêu / cooldown
+      if (
+        text.includes('█') || 
+        lowerText.includes('hồi chiêu') || 
+        lowerText.includes('ʜồi ᴄʜɪêᴜ') || 
+        lowerText.includes('cooldown')
+      ) {
+        return;
+      }
+
       const isRelevant = lowerText.includes('kiru') || lowerText.includes('bot') || lowerText.includes('login') || lowerText.includes('afk');
 
       if (isRelevant || isAwaitingResponse) {
@@ -398,7 +394,6 @@ function createBot() {
     } catch (e) {}
   });
 
-  // XỬ LÝ MẤT KẾT NỐI
   bot.on('end', (reason) => {
     if (reason === 'socketClosed') {
       addChatLog('🔄 Server đóng kết nối (socketClosed). Reconnect sau 5s...');
@@ -433,7 +428,7 @@ function handleReconnect() {
 // KHỞI CHẠY BOT
 createBot();
 
-// CHỐNG CRASH PROCESS NODEJS KHI CÓ LỖI TỪ THƯ VIỆN BÊN DƯỚI
+// CHỐNG CRASH PROCESS NODEJS
 const ignoreErrorKeywords = [
   'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
   'partialreaderror', 'packet_world_particles', 'read econnreset'
