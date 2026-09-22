@@ -4,20 +4,19 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 10000;
 
-// Cấu hình Express đọc dữ liệu từ Web Form
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- CẤU HÌNH BOT (BẤT TỬ KẾT NỐI & TỐI ƯU RENDER) ---
+// --- CẤU HÌNH BOT ---
 const OPTIONS = {
   host: 'vangioinetwork.xyz',
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 600 * 1000, // 10 phút timeout tránh ngắt mạng ảo
+  checkTimeoutInterval: 600 * 1000,
   keepAlive: true,
   physicsEnabled: true,
-  viewDistance: 'tiny' // Tầm nhìn cực ngắn để giảm tải tối đa RAM trên Render
+  viewDistance: 'tiny'
 };
 
 // --- QUẢN LÝ TRẠNG THÁI TOÀN CỤC ---
@@ -30,6 +29,7 @@ let allowStagnantCheck = false;
 // Quản lý Chat & Lệnh Web
 let isAwaitingResponse = false;
 let commandResponseTimer = null;
+let stagnantFallbackTimer = null;
 
 // Timers & Intervals
 let clickInterval = null;
@@ -37,7 +37,6 @@ let keepAliveInterval = null;
 let ramGcInterval = null;
 let posCheckInterval = null;
 let clickWatchdogInterval = null;
-let worldClearInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
 let loginTimer3 = null;
@@ -57,6 +56,15 @@ function addChatLog(msg) {
   if (serverChatLogs.length > 20) serverChatLogs.pop();
 }
 
+// Bật cửa sổ nhận phản hồi chat trong X giây
+function triggerChatWindow(durationMs = 8000) {
+  isAwaitingResponse = true;
+  if (commandResponseTimer) clearTimeout(commandResponseTimer);
+  commandResponseTimer = setTimeout(() => {
+    isAwaitingResponse = false;
+  }, durationMs);
+}
+
 // --- API XỬ LÝ LỆNH TỪ WEB DASHBOARD ---
 app.post('/api/command', (req, res) => {
   const cmd = req.body.command;
@@ -66,13 +74,7 @@ app.post('/api/command', (req, res) => {
   if (cmd) {
     bot.chat(cmd);
     addChatLog(`[WEB-ADMIN]: ${cmd}`);
-
-    // Mở cửa sổ lưu log chat trong 5 giây sau khi gửi lệnh
-    isAwaitingResponse = true;
-    if (commandResponseTimer) clearTimeout(commandResponseTimer);
-    commandResponseTimer = setTimeout(() => {
-      isAwaitingResponse = false;
-    }, 5000);
+    triggerChatWindow(8000); // Lưu log chat trong 8s sau khi gửi lệnh
   }
   res.redirect('/');
 });
@@ -109,8 +111,8 @@ app.get('/', (req, res) => {
         button:hover { background: #2563eb; }
       </style>
       <script>
-        // Tự động làm mới trang mỗi 5 giây, nhưng dừng lại nếu người dùng đang nhập lệnh
-        setTimeout(() => { 
+        // SỬA LỖI 2: Dùng setInterval thay cho setTimeout để tự động làm mới liên tục mỗi 5s
+        setInterval(() => { 
           const input = document.getElementById('cmd-input');
           if (!input || document.activeElement !== input) {
             location.reload(); 
@@ -143,7 +145,7 @@ app.get('/', (req, res) => {
       </div>
 
       <div class="card">
-        <h3>💬 Nhật Ký Server (Đã Lọc Kiru / Bot)</h3>
+        <h3>💬 Nhật Ký Server</h3>
         <div class="chat-box">
           ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
         </div>
@@ -155,15 +157,15 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port}`));
 
-// --- HÀM DỌN DẸP BỘ NHỚ TRƯỚC KHI RECONNECT ---
+// --- HÀM DỌN DẸP TRƯỚC KHI RECONNECT ---
 function cleanupBot() {
   isClicking = false;
   allowStagnantCheck = false;
 
-  const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval, worldClearInterval];
+  const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
 
-  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, loginTimer3, respawnTimer, commandResponseTimer];
+  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, loginTimer3, respawnTimer, commandResponseTimer, stagnantFallbackTimer];
   timeouts.forEach(t => t && clearTimeout(t));
 
   if (bot) {
@@ -183,7 +185,7 @@ function cleanupBot() {
   }
 }
 
-// --- AUTO CLICKER (1s/lần) ---
+// --- AUTO CLICKER ---
 function startAutoClicker() {
   if (clickInterval) clearInterval(clickInterval);
   isClicking = true;
@@ -215,7 +217,6 @@ function createBot() {
 
   try {
     bot = mineflayer.createBot(OPTIONS);
-    // Tắt giới hạn Listener tránh rò rỉ bộ nhớ từ NodeJS EventEmitter
     bot.setMaxListeners(0);
     if (bot._client) bot._client.setMaxListeners(0);
   } catch (err) {
@@ -228,22 +229,30 @@ function createBot() {
     console.log('[LOG] ✅ Bot đã vào server!');
     addChatLog('✅ Đã kết nối vào Server!');
     isReconnecting = false;
+    triggerChatWindow(15000); // Hiện chat 15s đầu khi kết nối
 
     if (isFirstSpawn) {
       isFirstSpawn = false;
 
       // 1. CHUỖI ĐĂNG NHẬP
       loginTimer1 = setTimeout(() => {
-        if (bot && bot._client) bot.chat('/l Kiru2000@');
+        if (bot && bot._client) {
+          bot.chat('/l Kiru2000@');
+          triggerChatWindow(5000);
+        }
       }, 10000);
 
       loginTimer2 = setTimeout(() => {
-        if (bot && bot._client) bot.chat('/afkmode vao');
+        if (bot && bot._client) {
+          bot.chat('/afkmode vao');
+          triggerChatWindow(5000);
+        }
       }, 20000);
 
       loginTimer3 = setTimeout(() => {
         if (bot && bot._client) {
           bot.chat('/afkmode vao');
+          triggerChatWindow(5000);
           startAutoClicker();
           allowStagnantCheck = true;
           if (bot.entity && bot.entity.position) {
@@ -252,28 +261,12 @@ function createBot() {
         }
       }, 40000);
 
-      // 2. TỐI ƯU HÓA BỘ NHỚ CHO RENDER (RAM DƯỚI 200MB)
+      // 2. SỬA LỖI 1: DỌN RAM AN TOÀN (Không can thiệp bot.entities hay bot.world)
       ramGcInterval = setInterval(() => {
-        // Xóa danh sách Entity tích tụ không dùng đến
-        if (bot && bot.entities) {
-          for (const id in bot.entities) {
-            if (bot.entity && id !== bot.entity.id.toString()) {
-              delete bot.entities[id];
-            }
-          }
-        }
-        // Gọi Garbage Collector ép giải phóng bộ nhớ
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
       }, 60 * 1000);
-
-      // Dọn dẹp cache World/Chunk định kỳ mỗi 3 phút
-      worldClearInterval = setInterval(() => {
-        if (bot && bot.world && typeof bot.world.clear === 'function') {
-          try { bot.world.clear(); } catch (e) {}
-        }
-      }, 3 * 60 * 1000);
 
       // 3. KIỂM TRA TỌA ĐỘ VÀ KẸT 5 BLOCK / 10 GIÂY
       posCheckInterval = setInterval(() => {
@@ -292,6 +285,16 @@ function createBot() {
               addChatLog(`☠️ Di chuyển < 5 block (${distance.toFixed(1)}m) -> /tusat`);
               bot.chat('/tusat');
               allowStagnantCheck = false;
+
+              // SỬA LỖI 3: Mở cơ chế dự phòng nếu lệnh /tusat không làm Bot chết sau 15s
+              if (stagnantFallbackTimer) clearTimeout(stagnantFallbackTimer);
+              stagnantFallbackTimer = setTimeout(() => {
+                if (bot && !allowStagnantCheck) {
+                  addChatLog('⚠️ Bot không chết sau /tusat. Mở lại kiểm tra kẹt...');
+                  if (bot.entity && bot.entity.position) lastPosition = { ...bot.entity.position };
+                  allowStagnantCheck = true;
+                }
+              }, 15000);
             }
           }
           lastPosition = { x: pos.x, y: pos.y, z: pos.z };
@@ -306,7 +309,7 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 5. CHỐNG ANTI-BOT (Nhích góc nhìn mỗi 12s)
+      // 5. CHỐNG ANTI-BOT
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client) {
           try {
@@ -333,6 +336,7 @@ function createBot() {
         if (bot && bot._client) {
           bot.chat('/afkmode vao');
           addChatLog('⌨️ Hồi sinh xong -> Lệnh /afkmode vao');
+          triggerChatWindow(5000);
           if (bot.entity && bot.entity.position) {
             lastPosition = { ...bot.entity.position };
           }
@@ -361,23 +365,23 @@ function createBot() {
     } catch (e) {}
   });
 
-  // LỌC CHAT: Chỉ lưu tin nhắn có liên quan "kiru", "bot" HOẶC phản hồi trong 5s sau khi nhập lệnh từ web
+  // SỬA LỖI 4: LỌC CHAT TỐI ƯU
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
       if (!text) return;
 
       const lowerText = text.toLowerCase();
-      const isRelevant = lowerText.includes('kiru') || lowerText.includes('bot');
+      // Hiện tin nhắn chứa tên Bot, thông báo Đăng nhập, hoặc khi mở cửa sổ chờ phản hồi
+      const isRelevant = lowerText.includes('kiru') || lowerText.includes('bot') || lowerText.includes('login') || lowerText.includes('afk');
 
       if (isRelevant || isAwaitingResponse) {
         addChatLog(text);
-        console.log('[CHAT FILTERED]: ' + text);
+        console.log('[CHAT]: ' + text);
       }
     } catch (e) {}
   });
 
-  // XỬ LÝ MẤT KẾT NỐI (ÉP RECONNECT SAU 6 GIÂY TRÁNH BAN IP RENDER)
   bot.on('end', (reason) => {
     addChatLog(`❌ Rớt mạng: ${reason}`);
     handleReconnect();
@@ -405,7 +409,7 @@ function handleReconnect() {
 // KHỞI CHẠY BOT
 createBot();
 
-// BỨC TƯỜNG BẢO VỆ CHỐNG CRASH PROCESS NODEJS
+// SỬA LỖI 5: BẢO VỆ & RECONNECT KHI GẶP LỖI LỚN
 const ignoreErrorKeywords = [
   'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
   'partialreaderror', 'packet_world_particles'
@@ -416,9 +420,10 @@ process.on('uncaughtException', (err) => {
   const code = (err.code || '').toUpperCase();
 
   if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
-    return; // Bỏ qua hoàn toàn các lỗi mạng và lỗi đọc packet
+    return;
   }
-  console.log('[CRASH PREVENTED]', err.message);
+  console.log('[CRASH PREVENTED] Lỗi nặng ngầm, ép reconnect:', err.message);
+  handleReconnect();
 });
 
 process.on('unhandledRejection', () => {});
