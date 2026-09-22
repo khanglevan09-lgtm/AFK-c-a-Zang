@@ -6,11 +6,10 @@ const port = process.env.PORT || 3000;
 
 // --- CẤU HÌNH BOT AFK ---
 const OPTIONS = {
-  host: 'IP_SERVER_CUA_BAN', // SỬA: Thay IP server của bạn
+  host: 'vangioinetwork.xyz', // SỬA: Thay IP server của bạn
   port: 25565,               // SỬA: Thay port (mặc định 25565)
-  username: 'Ten_Bot_AFK',   // SỬA: Tên bot
+  username: 'Kiru',   // SỬA: Tên bot
   version: false,            // Tự động dò phiên bản server
-  auth: 'offline',
   hideErrors: true           // Bỏ qua các packet lỗi hiển thị từ server
 };
 
