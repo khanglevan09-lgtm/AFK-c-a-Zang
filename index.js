@@ -29,7 +29,6 @@ let allowStagnantCheck = false;
 // Quản lý Chat & Lệnh Web
 let isAwaitingResponse = false;
 let commandResponseTimer = null;
-let stagnantFallbackTimer = null;
 
 // Timers & Intervals
 let clickInterval = null;
@@ -56,7 +55,6 @@ function addChatLog(msg) {
   if (serverChatLogs.length > 20) serverChatLogs.pop();
 }
 
-// Bật cửa sổ nhận phản hồi chat trong X giây
 function triggerChatWindow(durationMs = 8000) {
   isAwaitingResponse = true;
   if (commandResponseTimer) clearTimeout(commandResponseTimer);
@@ -74,7 +72,7 @@ app.post('/api/command', (req, res) => {
   if (cmd) {
     bot.chat(cmd);
     addChatLog(`[WEB-ADMIN]: ${cmd}`);
-    triggerChatWindow(8000); // Lưu log chat trong 8s sau khi gửi lệnh
+    triggerChatWindow(8000);
   }
   res.redirect('/');
 });
@@ -111,7 +109,6 @@ app.get('/', (req, res) => {
         button:hover { background: #2563eb; }
       </style>
       <script>
-        // SỬA LỖI 2: Dùng setInterval thay cho setTimeout để tự động làm mới liên tục mỗi 5s
         setInterval(() => { 
           const input = document.getElementById('cmd-input');
           if (!input || document.activeElement !== input) {
@@ -127,7 +124,7 @@ app.get('/', (req, res) => {
         <h3>📌 Trạng Thái Bot</h3>
         <p>🟢 <b>Kết nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : '<span class="badge-off">ĐANG RECONNECT</span>'}</p>
         <p>🖱️ <b>Auto Clicker:</b> ${isClicking ? '<span class="badge-on">ĐANG CHẠY</span>' : '<span class="badge-off">TẮT</span>'}</p>
-        <p>📍 <b>Tọa độ (10s):</b> <code>${currentCoords}</code></p>
+        <p>📍 <b>Tọa độ:</b> <code>${currentCoords}</code></p>
         <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB / 512 MB</p>
       </div>
 
@@ -157,7 +154,7 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port}`));
 
-// --- HÀM DỌN DẸP TRƯỚC KHI RECONNECT ---
+// --- HÀM DỌN DẸP BỘ NHỚ VÀ SOCKET ---
 function cleanupBot() {
   isClicking = false;
   allowStagnantCheck = false;
@@ -165,7 +162,7 @@ function cleanupBot() {
   const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
 
-  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, loginTimer3, respawnTimer, commandResponseTimer, stagnantFallbackTimer];
+  const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, loginTimer3, respawnTimer, commandResponseTimer];
   timeouts.forEach(t => t && clearTimeout(t));
 
   if (bot) {
@@ -220,7 +217,7 @@ function createBot() {
     bot.setMaxListeners(0);
     if (bot._client) bot._client.setMaxListeners(0);
   } catch (err) {
-    console.log(`[LỖI KHỞI TẠO] Kết nối lại sau 6 giây...`);
+    console.log(`[LỖI KHỞI TẠO] Kết nối lại sau 5 giây...`);
     handleReconnect();
     return;
   }
@@ -229,7 +226,14 @@ function createBot() {
     console.log('[LOG] ✅ Bot đã vào server!');
     addChatLog('✅ Đã kết nối vào Server!');
     isReconnecting = false;
-    triggerChatWindow(15000); // Hiện chat 15s đầu khi kết nối
+    triggerChatWindow(15000);
+
+    // BẢO VỆ SOCKET TCP: Gửi packet giữ kết nối 10s/lần chống lỗi socketClosed
+    if (bot._client && bot._client.socket) {
+      try {
+        bot._client.socket.setKeepAlive(true, 10000);
+      } catch (e) {}
+    }
 
     if (isFirstSpawn) {
       isFirstSpawn = false;
@@ -261,14 +265,14 @@ function createBot() {
         }
       }, 40000);
 
-      // 2. SỬA LỖI 1: DỌN RAM AN TOÀN (Không can thiệp bot.entities hay bot.world)
+      // 2. DỌN BỘ NHỚ RAM
       ramGcInterval = setInterval(() => {
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
       }, 60 * 1000);
 
-      // 3. KIỂM TRA TỌA ĐỘ VÀ KẸT 5 BLOCK / 10 GIÂY
+      // 3. THAY THẾ LỆNH /TUSAT THÀNH /AFKMODE VAO KHI ĐỨNG YÊN HOẶC KẸT
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
@@ -280,26 +284,17 @@ function createBot() {
             const dz = pos.z - lastPosition.z;
             const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-            if (distance < 5.0) {
-              console.log('[AFK CHECK] ☠️ Kích hoạt tự sát!');
-              addChatLog(`☠️ Di chuyển < 5 block (${distance.toFixed(1)}m) -> /tusat`);
-              bot.chat('/tusat');
-              allowStagnantCheck = false;
-
-              // SỬA LỖI 3: Mở cơ chế dự phòng nếu lệnh /tusat không làm Bot chết sau 15s
-              if (stagnantFallbackTimer) clearTimeout(stagnantFallbackTimer);
-              stagnantFallbackTimer = setTimeout(() => {
-                if (bot && !allowStagnantCheck) {
-                  addChatLog('⚠️ Bot không chết sau /tusat. Mở lại kiểm tra kẹt...');
-                  if (bot.entity && bot.entity.position) lastPosition = { ...bot.entity.position };
-                  allowStagnantCheck = true;
-                }
-              }, 15000);
+            // Nếu Bot di chuyển < 3.0 block trong 20s -> Tự động gửi /afkmode vao để vào lại khu AFK
+            if (distance < 3.0) {
+              console.log('[AFK CHECK] 🔄 Gửi lại /afkmode vao...');
+              addChatLog(`🔄 Đứng yên (<3m) -> Gửi lệnh /afkmode vao`);
+              bot.chat('/afkmode vao');
+              triggerChatWindow(5000);
             }
           }
           lastPosition = { x: pos.x, y: pos.y, z: pos.z };
         }
-      }, 10 * 1000);
+      }, 20 * 1000); // Kiểm tra mỗi 20 giây để không bị spam lệnh
 
       // 4. AUTO CLICKER WATCHDOG
       clickWatchdogInterval = setInterval(() => {
@@ -309,7 +304,7 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 5. CHỐNG ANTI-BOT
+      // 5. CHỐNG ANTI-BOT (Xoay góc nhìn nhẹ)
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client) {
           try {
@@ -335,7 +330,7 @@ function createBot() {
       setTimeout(() => {
         if (bot && bot._client) {
           bot.chat('/afkmode vao');
-          addChatLog('⌨️ Hồi sinh xong -> Lệnh /afkmode vao');
+          addChatLog('⌨️ Hồi sinh xong -> Gửi /afkmode vao');
           triggerChatWindow(5000);
           if (bot.entity && bot.entity.position) {
             lastPosition = { ...bot.entity.position };
@@ -365,14 +360,13 @@ function createBot() {
     } catch (e) {}
   });
 
-  // SỬA LỖI 4: LỌC CHAT TỐI ƯU
+  // LỌC CHAT
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
       if (!text) return;
 
       const lowerText = text.toLowerCase();
-      // Hiện tin nhắn chứa tên Bot, thông báo Đăng nhập, hoặc khi mở cửa sổ chờ phản hồi
       const isRelevant = lowerText.includes('kiru') || lowerText.includes('bot') || lowerText.includes('login') || lowerText.includes('afk');
 
       if (isRelevant || isAwaitingResponse) {
@@ -382,8 +376,13 @@ function createBot() {
     } catch (e) {}
   });
 
+  // XỬ LÝ MẤT KẾT NỐI (LÀM SẠCH SOCKET VÀ RECONNECT TỰ ĐỘNG)
   bot.on('end', (reason) => {
-    addChatLog(`❌ Rớt mạng: ${reason}`);
+    if (reason === 'socketClosed') {
+      addChatLog('🔄 Server đóng kết nối (socketClosed). Đang kết nối lại sau 5s...');
+    } else {
+      addChatLog(`❌ Rớt mạng: ${reason}`);
+    }
     handleReconnect();
   });
 
@@ -400,16 +399,16 @@ function handleReconnect() {
   isReconnecting = true;
   cleanupBot();
 
-  console.log(`⏳ Đang chờ 6 giây để kết nối lại an toàn...`);
+  console.log(`⏳ Đang chờ 5 giây để kết nối lại...`);
   reconnectTimeout = setTimeout(() => {
     createBot();
-  }, 6000);
+  }, 5000);
 }
 
 // KHỞI CHẠY BOT
 createBot();
 
-// SỬA LỖI 5: BẢO VỆ & RECONNECT KHI GẶP LỖI LỚN
+// CHỐNG CRASH PROCESS NODEJS
 const ignoreErrorKeywords = [
   'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
   'partialreaderror', 'packet_world_particles'
@@ -422,7 +421,7 @@ process.on('uncaughtException', (err) => {
   if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
     return;
   }
-  console.log('[CRASH PREVENTED] Lỗi nặng ngầm, ép reconnect:', err.message);
+  console.log('[CRASH PREVENTED] Lỗi ngầm:', err.message);
   handleReconnect();
 });
 
