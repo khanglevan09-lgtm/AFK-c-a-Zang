@@ -13,7 +13,7 @@ const OPTIONS = {
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 30 * 1000, // Đổi xuống 30s để phát hiện rớt mạng ngầm nhanh hơn
+  checkTimeoutInterval: 30 * 1000, // Phát hiện mất kết nối nhanh hơn (30s)
   keepAlive: true,
   physicsEnabled: true,
   viewDistance: 'tiny'
@@ -31,22 +31,22 @@ let commandResponseTimer = null;
 
 // Timers & Intervals
 let clickInterval = null;
+let sneakInterval = null;
 let keepAliveInterval = null;
 let ramGcInterval = null;
 let posCheckInterval = null;
 let clickWatchdogInterval = null;
-let freezeWatchdogInterval = null; // Watchdog chống treo
+let freezeWatchdogInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
 let respawnTimer = null;
 
-// Dữ liệu Realtime & Sát Thương
-let isClicking = false;
+// Dữ liệu Realtime
+let isAutoActionRunning = false;
+let isSneaking = false;
 let lastClickTime = Date.now();
 let currentCoords = 'Đang xác định...';
 let collectedCount = 0;
-let totalHits = 0;
-let totalDamageDealt = 0;
 const serverChatLogs = [];
 const startTime = Date.now();
 
@@ -65,27 +65,6 @@ function triggerChatWindow(durationMs = 8000) {
   commandResponseTimer = setTimeout(() => {
     isAwaitingResponse = false;
   }, durationMs);
-}
-
-// --- TÍNH SÁT THƯƠNG DỰA TRÊN VŨ KHÍ CẦM TRÊN TAY ---
-function getHeldWeaponDamage(botInstance) {
-  if (!botInstance || !botInstance.heldItem) return 1;
-
-  const itemName = botInstance.heldItem.name.toLowerCase();
-
-  if (itemName.includes('netherite_sword')) return 8;
-  if (itemName.includes('diamond_sword')) return 7;
-  if (itemName.includes('iron_sword')) return 6;
-  if (itemName.includes('stone_sword')) return 5;
-  if (itemName.includes('wooden_sword') || itemName.includes('golden_sword')) return 4;
-
-  if (itemName.includes('netherite_axe')) return 10;
-  if (itemName.includes('diamond_axe')) return 9;
-  if (itemName.includes('iron_axe')) return 9;
-  if (itemName.includes('stone_axe')) return 9;
-  if (itemName.includes('wooden_axe') || itemName.includes('golden_axe')) return 7;
-
-  return 2;
 }
 
 // --- API XỬ LÝ LỆNH TỪ WEB DASHBOARD ---
@@ -107,7 +86,6 @@ app.get('/api/restart', (req, res) => {
   addChatLog('🔄 [WEB-ADMIN]: Yêu cầu khởi động lại bot...');
   console.log('[HỆ THỐNG] Khởi động lại bot từ Web Dashboard');
   
-  // Ép trạng thái reconnect = false để vượt qua block của lệnh gọi trước (nếu có)
   isReconnecting = false; 
   handleReconnect();
   res.redirect('/');
@@ -138,7 +116,6 @@ app.get('/', (req, res) => {
         button:hover { background: #2563eb; }
         .btn-danger { background: #ef4444; width: 100%; margin-top: 10px; }
         .btn-danger:hover { background: #dc2626; }
-        .stat-highlight { color: #f43f5e; font-weight: bold; font-size: 1.2em; }
       </style>
       <script>
         setInterval(() => { 
@@ -155,17 +132,13 @@ app.get('/', (req, res) => {
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
         <p>🟢 <b>Kết nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : '<span class="badge-off">ĐANG RECONNECT</span>'}</p>
-        <p>🖱️ <b>Auto Clicker:</b> ${isClicking ? '<span class="badge-on">ĐANG CHẠY</span>' : '<span class="badge-off">TẮT</span>'}</p>
+        <p>🏃 <b>Di chuyển (W):</b> <span class="badge-on">LUÔN GIỮ W</span></p>
+        <p>🧎 <b>Auto Sneak (Shift 1s):</b> ${isAutoActionRunning ? '<span class="badge-on">ĐANG BẬT</span>' : '<span class="badge-off">TẮT</span>'}</p>
+        <p>🖱️ <b>Auto Click L/R (0.5s):</b> ${isAutoActionRunning ? '<span class="badge-on">ĐANG BẬT</span>' : '<span class="badge-off">TẮT</span>'}</p>
         <p>📍 <b>Tọa độ:</b> <code>${currentCoords}</code></p>
-        <p>🗡️ <b>Vũ khí đang cầm:</b> <code>${currentWeapon}</code></p>
-        <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB / 512 MB</p>
-      </div>
-
-      <div class="card">
-        <h3>⚔️ Thống Kê Sát Thương Tấn Công</h3>
-        <p>🎯 <b>Tổng đòn đánh trúng mục tiêu:</b> ${totalHits} đòn</p>
-        <p>💥 <b>Tổng sát thương đã gây ra:</b> <span class="stat-highlight">${totalDamageDealt} HP</span> (${(totalDamageDealt / 2).toFixed(1)} Tim)</p>
+        <p>🗡️ <b>Món đồ trên tay:</b> <code>${currentWeapon}</code></p>
         <p>📦 <b>Tổng lượt nhặt đồ:</b> ${collectedCount} lần</p>
+        <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB / 512 MB</p>
       </div>
 
       <div class="card">
@@ -194,11 +167,11 @@ app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port
 
 // --- HÀM DỌN DẸP BỘ NHỚ VÀ SOCKET ---
 function cleanupBot() {
-  isClicking = false;
+  isAutoActionRunning = false;
+  isSneaking = false;
   currentCoords = 'Đang xác định...';
 
-  // Xóa toàn bộ interval để tránh chồng chéo khi kết nối lại
-  const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval, freezeWatchdogInterval];
+  const intervals = [clickInterval, sneakInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval, freezeWatchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
 
   const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
@@ -206,6 +179,8 @@ function cleanupBot() {
 
   if (bot) {
     try {
+      bot.setControlState('forward', false);
+      bot.setControlState('sneak', false);
       bot.removeAllListeners();
       if (bot._client) {
         bot._client.removeAllListeners();
@@ -221,17 +196,25 @@ function cleanupBot() {
   }
 }
 
-// --- AUTO CLICKER TẤN CÔNG & TÍNH SÁT THƯƠNG ---
-function startAutoClicker() {
+// --- QUẢN LÝ HÀNH ĐỘNG TỰ ĐỘNG (CLICK 0.5s & SHIFT 1s & DI CHUYỂN W) ---
+function startAutoActions() {
   if (clickInterval) clearInterval(clickInterval);
-  isClicking = true;
+  if (sneakInterval) clearInterval(sneakInterval);
+  isAutoActionRunning = true;
 
+  // 1. Luôn giữ nút W (Tiến lên)
+  if (bot) {
+    bot.setControlState('forward', true);
+  }
+
+  // 2. Click Chuột Trái & Phải chu kỳ mỗi 0.5 giây (500ms)
   clickInterval = setInterval(() => {
     if (!bot || !bot._client || bot._client.socket.destroyed) {
-      isClicking = false;
+      isAutoActionRunning = false;
       return;
     }
     try {
+      // --- Click Trái (Attack nếu có mob trong phạm vi, hoặc Swing arm) ---
       const target = bot.nearestEntity(e => 
         (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
         e.position && bot.entity && bot.entity.position &&
@@ -241,14 +224,25 @@ function startAutoClicker() {
 
       if (target) {
         bot.attack(target);
-        const hitDamage = getHeldWeaponDamage(bot);
-        totalHits++;
-        totalDamageDealt += hitDamage;
       } else {
-        bot.swingArm('right');
+        bot.swingArm('right'); // Click trái không khí
       }
 
+      // --- Click Phải (Sử dụng vật phẩm trên tay) ---
+      try {
+        bot.activateItem(); // Click chuột phải
+      } catch (err) {}
+
       lastClickTime = Date.now();
+    } catch (err) {}
+  }, 500);
+
+  // 3. Tự động Ngồi (Shift) chu kỳ mỗi 1 giây (1000ms)
+  sneakInterval = setInterval(() => {
+    if (!bot || !bot._client || bot._client.socket.destroyed) return;
+    try {
+      isSneaking = !isSneaking;
+      bot.setControlState('sneak', isSneaking);
     } catch (err) {}
   }, 1000);
 }
@@ -276,6 +270,9 @@ function createBot() {
     addChatLog('✅ Đã kết nối vào Server!');
     triggerChatWindow(12000);
 
+    // Kích hoạt di chuyển W ngay khi vừa spawn
+    bot.setControlState('forward', true);
+
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setKeepAlive(true, 10000);
@@ -297,7 +294,7 @@ function createBot() {
         if (bot && bot._client) {
           bot.chat('/afkmode vao');
           triggerChatWindow(6000);
-          startAutoClicker();
+          startAutoActions();
         }
       }, 6000);
 
@@ -316,11 +313,14 @@ function createBot() {
         }
       }, 5 * 1000);
 
-      // 4. WATCHDOG AUTO CLICKER
+      // 4. WATCHDOG AUTO ACTION
       clickWatchdogInterval = setInterval(() => {
         const timeDiff = Date.now() - lastClickTime;
-        if (!isClicking || timeDiff > 4000) {
-          startAutoClicker();
+        if (!isAutoActionRunning || timeDiff > 4000) {
+          startAutoActions();
+        } else if (bot) {
+          // Đảm bảo nút W luôn bật
+          bot.setControlState('forward', true);
         }
       }, 15 * 1000);
 
@@ -336,7 +336,6 @@ function createBot() {
       }, 12 * 1000);
 
       // 6. WATCHDOG CHỐNG TREO BẰNG THỜI GIAN SERVER
-      // Nếu server không gửi gói tin cập nhật tick cho bot trong vòng 30s -> Mạng hoặc server bị treo
       freezeWatchdogInterval = setInterval(() => {
         if (!bot || !bot.time) return;
         
@@ -368,6 +367,7 @@ function createBot() {
           bot.chat('/afkmode vao');
           addChatLog('⌨️ Hồi sinh xong -> Gửi /afkmode vao');
           triggerChatWindow(5000);
+          startAutoActions();
         }
       }, 4000);
     }, 2000);
@@ -444,11 +444,10 @@ process.on('uncaughtException', (err) => {
   const code = (err.code || '').toUpperCase();
 
   if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
-    return; // Lọc bỏ các lỗi network ngầm không làm sập process
+    return;
   }
   
   console.log('[CRASH PREVENTED] Lỗi chưa xử lý:', err.message);
-  // Nếu gặp lỗi nghiêm trọng, chủ động ép bot kết nối lại
   isReconnecting = false;
   handleReconnect();
 });
