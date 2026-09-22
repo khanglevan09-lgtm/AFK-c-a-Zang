@@ -13,11 +13,12 @@ const OPTIONS = {
   host: 'vangioinetwork.xyz',
   port: 19000,
   username: 'Kiru',
+  // version: '1.20.1', // Điền phiên bản cụ thể của server nếu biết để bỏ qua bước Ping dò phiên bản
   hideErrors: true,
-  checkTimeoutInterval: 60 * 1000, // 60s timeout
+  checkTimeoutInterval: 60 * 1000,
   keepAlive: true,
-  physicsEnabled: true, // Giữ physics cơ bản để không bị noclip ban
-  viewDistance: 'tiny'   // Tải cực ít Chunk để tiết kiệm RAM/CPU
+  physicsEnabled: true,
+  viewDistance: 'tiny'
 };
 
 // --- QUẢN LÝ TRẠNG THÁI ---
@@ -25,7 +26,7 @@ let bot = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
 let isFirstSpawn = true;
-let reconnectDelay = 10000; // Chờ 10s xả bộ đệm IP khi rớt mạng
+let reconnectDelay = 10000;
 
 // Web Admin & Chat
 let isAwaitingResponse = false;
@@ -65,11 +66,7 @@ function triggerChatWindow(durationMs = 8000) {
   }, durationMs);
 }
 
-// --- SELF-PING CHỐNG HOSTING SLEEP ---
-setInterval(() => {
-  http.get(`http://localhost:${port}/api/ping`, () => {}).on('error', () => {});
-}, 3 * 60 * 1000);
-
+// Ping Route giữ Web Service sống
 app.get('/api/ping', (req, res) => res.send('PONG'));
 
 // --- API WEB DASHBOARD ---
@@ -129,9 +126,9 @@ app.get('/', (req, res) => {
     <body>
       <h2>🤖 Minecraft Ultra-Stable AFK Bot Dashboard</h2>
       <div class="card">
-        <h3>📌 Trạng Thái Bot (Đã Tối Ưu Tải)</h3>
+        <h3>📌 Trạng Thái Bot</h3>
         <p>🟢 <b>Kết nối Server:</b> ${bot ? '<span class="badge-on">STABLE ONLINE</span>' : '<span class="badge-off">RECONNECTING</span>'}</p>
-        <p>🛡️ <b>Chống Anti-Cheat Rate Limit:</b> <span class="badge-on">KÍCH HOẠT (2.5s/action)</span></p>
+        <p>🛡️ <b>Chống Anti-Cheat Rate Limit:</b> <span class="badge-on">KÍCH HOẠT (2.5s - 3.5s/action)</span></p>
         <p>📍 <b>Tọa độ:</b> <code>${currentCoords}</code></p>
         <p>🗡️ <b>Đồ trên tay:</b> <code>${currentWeapon}</code></p>
         <p>📦 <b>Đã nhặt đồ:</b> ${collectedCount} lần</p>
@@ -162,12 +159,16 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => console.log(`[HTTP SERVER] Running on port ${port}`));
 
-// --- HÀM DỌN DẸP SẠCH BỘ NHỚ VÀ SOCKET ---
+// --- HÀM DỌN DẸP TRUYỆT ĐỐI KHÔNG ĐỂ LẠI MẸO RÒ RỈ MEMORY ---
 function cleanupBot() {
   isAutoActionRunning = false;
   currentCoords = 'Đang xác định...';
 
-  if (actionTimeout) clearTimeout(actionTimeout);
+  // Hủy triệt để Action Loop để tránh nhân bản
+  if (actionTimeout) {
+    clearTimeout(actionTimeout);
+    actionTimeout = null;
+  }
 
   const intervals = [antiAfkInterval, ramGcInterval, posCheckInterval, watchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
@@ -193,8 +194,14 @@ function cleanupBot() {
   }
 }
 
-// --- VÒNG LẶP HÀNH ĐỘNG AN TOÀN (2.5s - 3.5s) ---
+// --- VÒNG LẶP HÀNH ĐỘNG AN TOÀN (CHỐNG NHÂN BẢN PHÍM/CLICK) ---
 function scheduleNextAction() {
+  // BẢO VỆ 1: Hủy ngay Timeout cũ nếu có để ngăn việc nhân bản vòng lặp
+  if (actionTimeout) {
+    clearTimeout(actionTimeout);
+    actionTimeout = null;
+  }
+
   if (!bot || !bot._client || bot._client.socket.destroyed) {
     isAutoActionRunning = false;
     return;
@@ -203,38 +210,39 @@ function scheduleNextAction() {
   isAutoActionRunning = true;
   lastActionTime = Date.now();
 
+  const currentBot = bot; // Lưu reference tránh Race Condition khi Reconnect
+
   try {
-    // 1. Tấn công mob hoặc vung tay
-    const target = bot.nearestEntity(e => 
+    const target = currentBot.nearestEntity(e => 
       (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
-      e.position && bot.entity && bot.entity.position &&
-      e.id !== bot.entity.id &&
-      e.position.distanceTo(bot.entity.position) <= 4.0
+      e.position && currentBot.entity && currentBot.entity.position &&
+      e.id !== currentBot.entity.id &&
+      e.position.distanceTo(currentBot.entity.position) <= 4.0
     );
 
     if (target) {
-      bot.attack(target);
+      currentBot.attack(target);
     } else {
-      bot.swingArm('right');
+      currentBot.swingArm('right');
     }
 
-    // 2. Click chuột phải (dùng đồ)
-    try { bot.activateItem(); } catch (err) {}
+    try { currentBot.activateItem(); } catch (err) {}
 
-    // 3. Nhún Shift ngắn hợp lệ
-    bot.setControlState('sneak', true);
+    // BẢO VỆ 2: Khóa nhún Shift an toàn
+    currentBot.setControlState('sneak', true);
     setTimeout(() => {
-      if (bot) bot.setControlState('sneak', false);
+      if (bot === currentBot && bot.entity) {
+        bot.setControlState('sneak', false);
+      }
     }, 200);
 
   } catch (err) {}
 
-  // Giãn cách thời gian giữa các packet (2.5s - 3.5s) để Server không đánh giá là Spam Bot
   const safeDelay = Math.floor(2500 + Math.random() * 1000);
   actionTimeout = setTimeout(scheduleNextAction, safeDelay);
 }
 
-// --- CHỐNG KICK AFK BẰNG XOAY HƯỚNG NHẸ (KHÔNG DÙNG DI CHUYỂN PHÍM) ---
+// --- CHỐNG KICK AFK BẰNG XOAY HƯỚNG NHẸ ---
 function startAntiAfkRotations() {
   if (antiAfkInterval) clearInterval(antiAfkInterval);
 
@@ -242,12 +250,11 @@ function startAntiAfkRotations() {
     if (!bot || !bot.entity) return;
 
     try {
-      // Đổi góc nhìn yaw ngẫu nhiên nhẹ nhàng
       const randomYaw = (Math.random() - 0.5) * 0.4;
       const randomPitch = (Math.random() - 0.5) * 0.1;
       bot.look(bot.entity.yaw + randomYaw, bot.entity.pitch + randomPitch, true);
     } catch (e) {}
-  }, 30 * 1000); // 30s xoay nhẹ 1 lần
+  }, 30 * 1000);
 }
 
 function createBot() {
@@ -264,14 +271,6 @@ function createBot() {
 
     if (bot._client) {
       bot._client.setMaxListeners(0);
-      
-      // BỎ QUA GÓI TIN HẠT ĐỂ TIẾT KIỆM RAM/CPU VÀ PHÒNG TRÁNH LỖI BUFFER SOCKET
-      bot._client.on('packet', (data, metadata) => {
-        if (metadata.name === 'world_particles' || metadata.name === 'named_sound_effect') {
-          return; // Nuốt packet rác
-        }
-      });
-
       bot._client.on('error', () => {});
     }
   } catch (err) {
@@ -285,7 +284,6 @@ function createBot() {
     addChatLog('✅ Kết nối ổn định thành công!');
     triggerChatWindow(12000);
 
-    // Bật NoDelay trên Socket TCP để tối ưu mạng
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setNoDelay(true);
@@ -313,7 +311,6 @@ function createBot() {
         }
       }, 6000);
 
-      // Ép dọn dẹp RAM cực mạnh mỗi 45s
       ramGcInterval = setInterval(() => {
         if (global.gc) {
           try { global.gc(); } catch (e) {}
@@ -327,7 +324,6 @@ function createBot() {
         }
       }, 5 * 1000);
 
-      // Watchdog kiểm tra treo ngầm
       watchdogInterval = setInterval(() => {
         if (!bot) return;
 
@@ -377,7 +373,6 @@ function createBot() {
     } catch (e) {}
   });
 
-  // BỘ LỌC CHAT
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
@@ -404,7 +399,7 @@ function createBot() {
   });
 
   bot.on('end', (reason) => {
-    addChatLog(`❌ Đóng kết nối (${reason}). Chờ ${reconnectDelay / 1000}s để xóa IP Rate-Limit...`);
+    addChatLog(`❌ Đóng kết nối (${reason}). Chờ ${reconnectDelay / 1000}s...`);
     handleReconnect();
   });
 
@@ -436,7 +431,7 @@ function handleReconnect() {
 // KHỞI CHẠY BOT
 createBot();
 
-// CHỐNG CRASH PROCESS KHI CÓ LỖI TỪ THƯ VIỆN BÊN DƯỚI
+// BẮT BẢO VỆ CHỐNG CRASH HỆ THỐNG
 const ignoreErrorKeywords = [
   'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
   'partialreaderror', 'packet_world_particles', 'read econnreset', 'write econnreset'
