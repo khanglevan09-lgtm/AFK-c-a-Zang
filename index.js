@@ -13,7 +13,7 @@ const OPTIONS = {
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 600 * 1000,
+  checkTimeoutInterval: 30 * 1000, // Đổi xuống 30s để phát hiện rớt mạng ngầm nhanh hơn
   keepAlive: true,
   physicsEnabled: true,
   viewDistance: 'tiny'
@@ -35,6 +35,7 @@ let keepAliveInterval = null;
 let ramGcInterval = null;
 let posCheckInterval = null;
 let clickWatchdogInterval = null;
+let freezeWatchdogInterval = null; // Watchdog chống treo
 let loginTimer1 = null;
 let loginTimer2 = null;
 let respawnTimer = null;
@@ -48,6 +49,10 @@ let totalHits = 0;
 let totalDamageDealt = 0;
 const serverChatLogs = [];
 const startTime = Date.now();
+
+// Dữ liệu kiểm tra treo bot
+let lastTimeAge = 0;
+let lastTimeAgeUpdate = Date.now();
 
 function addChatLog(msg) {
   serverChatLogs.unshift(`[${new Date().toLocaleTimeString('vi-VN')}] ${msg}`);
@@ -64,25 +69,22 @@ function triggerChatWindow(durationMs = 8000) {
 
 // --- TÍNH SÁT THƯƠNG DỰA TRÊN VŨ KHÍ CẦM TRÊN TAY ---
 function getHeldWeaponDamage(botInstance) {
-  if (!botInstance || !botInstance.heldItem) return 1; // Tay không = 1 HP (0.5 tim)
+  if (!botInstance || !botInstance.heldItem) return 1;
 
   const itemName = botInstance.heldItem.name.toLowerCase();
 
-  // Kiếm (Swords)
   if (itemName.includes('netherite_sword')) return 8;
   if (itemName.includes('diamond_sword')) return 7;
   if (itemName.includes('iron_sword')) return 6;
   if (itemName.includes('stone_sword')) return 5;
   if (itemName.includes('wooden_sword') || itemName.includes('golden_sword')) return 4;
 
-  // Rìu (Axes - Sát thương đơn đòn cao hơn)
   if (itemName.includes('netherite_axe')) return 10;
   if (itemName.includes('diamond_axe')) return 9;
   if (itemName.includes('iron_axe')) return 9;
   if (itemName.includes('stone_axe')) return 9;
   if (itemName.includes('wooden_axe') || itemName.includes('golden_axe')) return 7;
 
-  // Cúp/Xẻng/Món khác
   return 2;
 }
 
@@ -97,6 +99,17 @@ app.post('/api/command', (req, res) => {
     addChatLog(`[WEB-ADMIN]: ${cmd}`);
     triggerChatWindow(8000);
   }
+  res.redirect('/');
+});
+
+// --- API KHỞI ĐỘNG LẠI BOT THỦ CÔNG ---
+app.get('/api/restart', (req, res) => {
+  addChatLog('🔄 [WEB-ADMIN]: Yêu cầu khởi động lại bot...');
+  console.log('[HỆ THỐNG] Khởi động lại bot từ Web Dashboard');
+  
+  // Ép trạng thái reconnect = false để vượt qua block của lệnh gọi trước (nếu có)
+  isReconnecting = false; 
+  handleReconnect();
   res.redirect('/');
 });
 
@@ -123,6 +136,8 @@ app.get('/', (req, res) => {
         input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #475569; background: #0f172a; color: white; }
         button { padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background: #2563eb; }
+        .btn-danger { background: #ef4444; width: 100%; margin-top: 10px; }
+        .btn-danger:hover { background: #dc2626; }
         .stat-highlight { color: #f43f5e; font-weight: bold; font-size: 1.2em; }
       </style>
       <script>
@@ -154,10 +169,13 @@ app.get('/', (req, res) => {
       </div>
 
       <div class="card">
-        <h3>⚙️ Bảng Điều Khiển Lệnh Direct</h3>
+        <h3>⚙️ Bảng Điều Khiển</h3>
         <form class="input-group" action="/api/command" method="POST">
           <input type="text" id="cmd-input" name="command" placeholder="Nhập lệnh (vd: /afkmode vao) hoặc chat..." autocomplete="off" required>
           <button type="submit">Gửi Lệnh</button>
+        </form>
+        <form action="/api/restart" method="GET" onsubmit="return confirm('Bạn có chắc chắn muốn khởi động lại kết nối của bot không?');">
+          <button type="submit" class="btn-danger">🔄 Khởi Động Lại Bot Thủ Công</button>
         </form>
       </div>
 
@@ -177,8 +195,10 @@ app.listen(port, () => console.log(`[HTTP SERVER] Đang chạy tại port ${port
 // --- HÀM DỌN DẸP BỘ NHỚ VÀ SOCKET ---
 function cleanupBot() {
   isClicking = false;
+  currentCoords = 'Đang xác định...';
 
-  const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval];
+  // Xóa toàn bộ interval để tránh chồng chéo khi kết nối lại
+  const intervals = [clickInterval, keepAliveInterval, ramGcInterval, posCheckInterval, clickWatchdogInterval, freezeWatchdogInterval];
   intervals.forEach(i => i && clearInterval(i));
 
   const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
@@ -212,7 +232,6 @@ function startAutoClicker() {
       return;
     }
     try {
-      // Tìm mob hoặc người chơi khác trong bán kính 4.5 block
       const target = bot.nearestEntity(e => 
         (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
         e.position && bot.entity && bot.entity.position &&
@@ -221,15 +240,11 @@ function startAutoClicker() {
       );
 
       if (target) {
-        // Tấn công thực thể
         bot.attack(target);
-        
-        // Tính toán sát thương chắc chắn gây ra theo vũ khí trên tay
         const hitDamage = getHeldWeaponDamage(bot);
         totalHits++;
         totalDamageDealt += hitDamage;
       } else {
-        // Nếu không có mob xung quanh -> Vung tay giữ kết nối AFK
         bot.swingArm('right');
       }
 
@@ -241,6 +256,8 @@ function startAutoClicker() {
 function createBot() {
   cleanupBot();
   isFirstSpawn = true;
+  lastTimeAge = 0;
+  lastTimeAgeUpdate = Date.now();
 
   console.log(`\n[HỆ THỐNG] Đang kết nối đến ${OPTIONS.host}...`);
 
@@ -317,6 +334,23 @@ function createBot() {
           } catch (e) {}
         }
       }, 12 * 1000);
+
+      // 6. WATCHDOG CHỐNG TREO BẰNG THỜI GIAN SERVER
+      // Nếu server không gửi gói tin cập nhật tick cho bot trong vòng 30s -> Mạng hoặc server bị treo
+      freezeWatchdogInterval = setInterval(() => {
+        if (!bot || !bot.time) return;
+        
+        if (bot.time.age === lastTimeAge) {
+          if (Date.now() - lastTimeAgeUpdate > 30000) {
+            addChatLog('⚠️ Phát hiện bot bị treo/kẹt. Tiến hành kết nối lại...');
+            console.log('[WATCHDOG] Bot bị treo kết nối ngầm. Đang restart...');
+            handleReconnect();
+          }
+        } else {
+          lastTimeAge = bot.time.age;
+          lastTimeAgeUpdate = Date.now();
+        }
+      }, 10000);
     }
   });
 
@@ -369,15 +403,17 @@ function createBot() {
     if (reason === 'socketClosed') {
       addChatLog('🔄 Server đóng kết nối (socketClosed). Reconnect sau 5s...');
     } else {
-      addChatLog(`❌ Rớt mạng: ${reason}`);
+      addChatLog(`❌ Rớt mạng hoặc Server tắt: ${reason}`);
     }
     handleReconnect();
   });
 
-  bot.on('error', () => {});
+  bot.on('error', (err) => {
+    console.log('[MINEFLAYER ERROR]', err.message);
+  });
 
   bot.on('kicked', (reason) => {
-    addChatLog(`⚠️ Bị Kick: ${reason}`);
+    addChatLog(`⚠️ Bị Kick khỏi server. Đang thử lại...`);
     handleReconnect();
   });
 }
@@ -397,10 +433,10 @@ function handleReconnect() {
 // KHỞI CHẠY BOT
 createBot();
 
-// CHỐNG CRASH PROCESS NODEJS
+// CHỐNG CRASH PROCESS NODEJS KHI CÓ LỖI TỪ THƯ VIỆN BÊN DƯỚI
 const ignoreErrorKeywords = [
   'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
-  'partialreaderror', 'packet_world_particles'
+  'partialreaderror', 'packet_world_particles', 'read econnreset'
 ];
 
 process.on('uncaughtException', (err) => {
@@ -408,9 +444,12 @@ process.on('uncaughtException', (err) => {
   const code = (err.code || '').toUpperCase();
 
   if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
-    return;
+    return; // Lọc bỏ các lỗi network ngầm không làm sập process
   }
-  console.log('[CRASH PREVENTED] Lỗi ngầm:', err.message);
+  
+  console.log('[CRASH PREVENTED] Lỗi chưa xử lý:', err.message);
+  // Nếu gặp lỗi nghiêm trọng, chủ động ép bot kết nối lại
+  isReconnecting = false;
   handleReconnect();
 });
 
