@@ -22,7 +22,7 @@ let reconnectTimeout = null;
 let isReconnecting = false;  
 let isFirstSpawn = true;     
 
-// Timers & Intervals (Dọn dẹp triệt để chống leak RAM)
+// Timers & Intervals
 let clickInterval = null;
 let keepAliveInterval = null;
 let connCheckInterval = null;
@@ -40,7 +40,7 @@ let lastClickTime = Date.now();
 let currentCoords = 'Đang xác định...';
 let lastPosition = null;
 let positionStagnantCount = 0;
-const collectedItems = {}; // Lưu số lượng item đã nhặt: { 'Tên Item': Số lượng }
+const collectedItems = {}; // Lưu số lượng item đã nhặt
 const serverChatLogs = [];
 const startTime = Date.now();
 
@@ -143,7 +143,7 @@ function cleanupBot() {
   }
 }
 
-// --- AUTO CLICKER (Yêu cầu 5 & 11: Vòng lập 1 giây/lần, thả lỏng không ép di chuyển) ---
+// --- AUTO CLICKER (Vòng lập 1 giây/lần) ---
 function startAutoClicker() {
   if (clickInterval) clearInterval(clickInterval);
   isClicking = true;
@@ -164,7 +164,7 @@ function startAutoClicker() {
       }
       lastClickTime = Date.now();
     } catch (err) {}
-  }, 1000); // 1 giây / lần theo đúng yêu cầu
+  }, 1000);
 }
 
 function createBot() {
@@ -214,7 +214,7 @@ function createBot() {
         }
       }, 40000);
 
-      // 2. YÊU CẦU 3: DỌN DẸP RAM ĐỊNH KỲ 2 PHÚT (Không ngắt kết nối bot)
+      // 2. DỌN DẸP RAM ĐỊNH KỲ 2 PHÚT
       ramGcInterval = setInterval(() => {
         const memBefore = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
         if (global.gc) {
@@ -224,7 +224,7 @@ function createBot() {
         console.log(`[DỌN RAM] 🧹 Dọn RAM chu kỳ 2 phút: ${memBefore}MB -> ${memAfter}MB`);
       }, 120 * 1000);
 
-      // 3. YÊU CẦU 8: KIỂM TRA KẾT NỐI MỖI 3 PHÚT (Chống văng bot)
+      // 3. KIỂM TRA KẾT NỐI MỖI 3 PHÚT
       connCheckInterval = setInterval(() => {
         if (!bot || !bot._client || !bot._client.socket || bot._client.socket.destroyed) {
           console.log('[KẾT NỐI] ⚠️ Mất socket! Đang kết nối lại...');
@@ -236,7 +236,7 @@ function createBot() {
         }
       }, 180 * 1000);
 
-      // 4. YÊU CẦU 10: KIỂM TRA TỌA ĐỘ VÀ BÁO LẠI MỖI 10 GIÂY
+      // 4. KIỂM TRA TỌA ĐỘ VÀ BÁO LẠI MỖI 10 GIÂY
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
@@ -245,7 +245,7 @@ function createBot() {
         }
       }, 10 * 1000);
 
-      // 5. YÊU CẦU 5: TỰ KIỂM TRA CLICKER (Khởi động lại nếu ngưng)
+      // 5. TỰ KIỂM TRA CLICKER
       clickWatchdogInterval = setInterval(() => {
         const timeDiff = Date.now() - lastClickTime;
         if (!isClicking || timeDiff > 4000) {
@@ -255,16 +255,18 @@ function createBot() {
         }
       }, 15 * 1000);
 
-      // 6. YÊU CẦU 6: KIỂM TRA XEM BOT CÓ BỊ ĐỨNG IM (Nếu đứng yên 2 phút -> Gửi /afkmode vao)
+      // 6. KIỂM TRA BOT CÓ BỊ ĐỨNG IM (Nếu đứng yên 2 lần kiểm tra -> Gửi /tusat)
       afkStagnantCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
           if (lastPosition && Math.abs(pos.x - lastPosition.x) < 0.5 && Math.abs(pos.z - lastPosition.z) < 0.5) {
             positionStagnantCount++;
+            console.log(`[AFK CHECK] ⚠️ Bot đứng yên lần ${positionStagnantCount}/2`);
+            
             if (positionStagnantCount >= 2) { 
-              console.log('[AFK CHECK] ⚠️ Bot đứng yên 2 phút -> Gửi /afkmode vao');
-              addChatLog('⚠️ Bot không di chuyển -> Thử gửi /afkmode vao');
-              bot.chat('/afkmode vao');
+              console.log('[AFK CHECK] ☠️ Bot không di chuyển 2 lần liên tiếp -> Thực hiện /tusat!');
+              addChatLog('☠️ Bot bị kẹt / không di chuyển 2 lần -> Gửi /tusat');
+              bot.chat('/tusat');
               positionStagnantCount = 0;
             }
           } else {
@@ -272,9 +274,9 @@ function createBot() {
           }
           lastPosition = { x: pos.x, y: pos.y, z: pos.z };
         }
-      }, 60 * 1000);
+      }, 60 * 1000); // Mỗi phút kiểm tra 1 lần
 
-      // 7. YÊU CẦU 9: CHỐNG ANTI-BOT (Xoay góc nhìn ngẫu nhiên nhẹ mỗi 12 giây)
+      // 7. CHỐNG ANTI-BOT (Xoay góc nhìn nhẹ mỗi 12 giây)
       keepAliveInterval = setInterval(() => {
         if (bot && bot.entity && bot._client && !bot._client.socket.destroyed) {
           try {
@@ -287,7 +289,27 @@ function createBot() {
     }
   });
 
-  // YÊU CẦU 4: BẮT SỰ KIỆN NHẶT ĐỒ (Không cần lưu cây túi đồ)
+  // TỰ ĐỘNG HỒI SINH KHI CHẾT (DÙNG /TUSAT HOẶC CHẾT DO Mobs)
+  bot.on('death', () => {
+    console.log('[TRẠNG THÁI] 💀 Bot đã chết! Chuẩn bị hồi sinh...');
+    addChatLog('💀 Bot đã chết! Tự động hồi sinh sau 2s...');
+    
+    setTimeout(() => {
+      if (bot && bot._client && !bot._client.socket.destroyed) {
+        try { bot.respawn(); } catch (e) {}
+      }
+    }, 2000);
+
+    // Sau khi hồi sinh 5s, tự động vào lại /afkmode vao
+    setTimeout(() => {
+      if (bot && bot._client && !bot._client.socket.destroyed) {
+        bot.chat('/afkmode vao');
+        addChatLog('⌨️ Đã hồi sinh xong -> Gửi lại lệnh /afkmode vao');
+      }
+    }, 7000);
+  });
+
+  // BẮT SỰ KIỆN NHẶT ĐỒ
   bot.on('playerCollect', (collector, itemEntity) => {
     try {
       if (collector && bot.entity && collector.id === bot.entity.id) {
@@ -366,4 +388,3 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.log('[LỖI PROMISE UNHANDLED]:', reason);
 });
-        
