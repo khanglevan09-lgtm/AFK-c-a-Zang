@@ -7,15 +7,16 @@ const port = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// --- CẤU HÌNH BOT MINECRAFT ---
 const OPTIONS = {
   host: 'vangioinetwork.xyz',
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 45 * 1000,
+  checkTimeoutInterval: 120 * 1000, // Tăng thời gian chờ timeout lên 2 phút
   keepAlive: true,
-  physicsEnabled: true,
-  viewDistance: 'tiny'
+  physicsEnabled: true,             // BẬT VẬT LÝ ĐỂ BOT HOẠT ĐỘNG BÌNH THƯỜNG
+  viewDistance: 'tiny'              // TẢI CHUNK NHỎ NHẤT ĐỂ GIẢM TẢI CPU
 };
 
 let bot = null;
@@ -115,7 +116,7 @@ app.get('/', (req, res) => {
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Minecraft Stealth & High-Stability Bot</title>
+      <title>Minecraft Bot Control Center - Persistent Connection</title>
       <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #090d16; color: #f8fafc; padding: 20px; margin: 0; }
         .card { background: #161e2e; padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #273549; }
@@ -143,11 +144,11 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
-      <h2>🛡️ Minecraft Bot Control Center (Ultra Stability)</h2>
+      <h2>🛡️ Minecraft Bot Control Center (Không Tự Ngắt Khi Ping Cao)</h2>
       
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
-        <p>🟢 <b>Kết Nối Server:</b> ${bot ? '<span class="badge-on">ONLINE (Client Spoof: Vanilla)</span>' : `<span class="badge-off">RECONNECTING (${currentReconnectDelay / 1000}s)</span>`}</p>
+        <p>🟢 <b>Kết Nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : `<span class="badge-off">RECONNECTING (${currentReconnectDelay / 1000}s)</span>`}</p>
         <p>📶 <b>Ping Hiện Tại:</b> <b style="color: #38bdf8;">${currentPing} ms</b> | 📍 <b>Tọa Độ:</b> <code>${currentCoords}</code></p>
         <p>🗡️ <b>Trang Bị:</b> <code>${currentWeapon}</code> | 📦 <b>Nhặt Vật Phẩm:</b> ${collectedCount} lần</p>
         <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB</p>
@@ -298,6 +299,18 @@ function createBot() {
     bot = mineflayer.createBot(OPTIONS);
     bot.setMaxListeners(0);
 
+    // LỌC BỎ PACKET PHỤ ĐỂ TIẾT KIỆM CPU RENDER
+    bot._client.on('packet', (data, meta) => {
+      if (
+        meta.name === 'world_particles' || 
+        meta.name === 'named_sound_effect' || 
+        meta.name === 'sound_effect' ||
+        meta.name === 'entity_velocity'
+      ) {
+        return;
+      }
+    });
+
     if (bot._client) {
       bot._client.setMaxListeners(0);
       bot._client.on('error', (err) => {
@@ -317,7 +330,6 @@ function createBot() {
 
     consecutiveFailures = 0;
 
-    // 1. GIẢ LẬP CLIENT BRAND VANILLA ĐỂ QUA BỘ LỌC ANTI-BOT
     try {
       if (bot._client) {
         bot._client.write('custom_payload', {
@@ -376,21 +388,18 @@ function createBot() {
       watchdogInterval = setInterval(() => {
         if (!bot) return;
 
-        // 2. RÚT LUI CHỦ ĐỘNG NẾU PING QUÁ CAO (TRÁNH BỊ ANTI-CHEAT PHẠT)
-        if (currentPing > 1500) {
-          addErrorLog('Chủ Động Ngắt', `Ping nhảy quá cao (${currentPing}ms). Ngắt kết nối an toàn!`);
-          handleReconnect();
-          return;
-        }
+        // BỎ HOÀN TOÀN TÍNH NĂNG NGẮT KHI PING CAO
+        // Bot vẫn sẽ giữ kết nối liên tục kể cả khi Ping tăng cao
 
         if (!isAutoActionRunning || Date.now() - lastActionTime > 15000) {
           scheduleNextAction();
         }
 
+        // Chỉ Reconnect khi Server ngưng trả về thời gian thế giới quá 45 giây (kẹt packet thực sự)
         if (bot.time) {
           if (bot.time.age === lastTimeAge) {
-            if (Date.now() - lastTimeAgeUpdate > 40000) {
-              addErrorLog('Watchdog', 'Kẹt packet (Ghost Connection). Bắt buộc Reconnect!');
+            if (Date.now() - lastTimeAgeUpdate > 45000) {
+              addErrorLog('Watchdog', 'Mất dữ liệu kết nối thực sự (Kẹt Packet). Bắt buộc Reconnect!');
               handleReconnect();
             }
           } else {
@@ -456,8 +465,9 @@ function createBot() {
     } catch (e) {}
   });
 
+  // Chỉ Reconnect khi thực sự bị đứt kết nối từ Socket hoặc Server
   bot.on('end', (reason) => {
-    addErrorLog('Mất Kết Nối (End)', `Server ngắt kết nối với lý do: ${reason}`);
+    addErrorLog('Mất Kết Nối (End)', `Server ngắt kết nối thực tế: ${reason}`);
     handleReconnect();
   });
 
@@ -525,4 +535,4 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   addErrorLog('Unhandled Rejection', String(reason));
 });
-  
+                           
