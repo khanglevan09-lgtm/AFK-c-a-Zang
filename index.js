@@ -7,6 +7,7 @@ const port = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// ÉP MÚI GIỜ VIỆT NAM TOÀN HỆ THỐNG
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 const OPTIONS = {
@@ -25,7 +26,8 @@ let reconnectTimeout = null;
 let isReconnecting = false;
 let isFirstSpawn = true;
 
-let currentReconnectDelay = 15000; 
+// THỜI GIAN RECONNECT TỐI THIỂU 30 GIÂY
+let currentReconnectDelay = 30000; 
 let consecutiveFailures = 0; 
 
 let actionTimeout = null;
@@ -34,7 +36,7 @@ let ramGcInterval = null;
 let posCheckInterval = null;
 let watchdogInterval = null;
 let pingInterval = null;
-let heartbeatInterval = null;
+let socketHeartbeatInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
 let respawnTimer = null;
@@ -51,7 +53,7 @@ const startTime = Date.now();
 const serverChatLogs = [];
 const errorLogs = [];    
 const pingLogs = [];     
-const kiruMentionLogs = []; // BỘ LƯU TRỮ NHẮC TÊN KIRU (KHÔNG TỰ XÓA)
+const kiruMentionLogs = []; // NHẬT KÝ LƯU TRỮ VĨNH VIỄN CÁC TIN NHẮN LIÊN QUAN TỚI KIRU
 
 let lastTimeAge = 0;
 let lastTimeAgeUpdate = Date.now();
@@ -144,7 +146,7 @@ app.get('/', (req, res) => {
         .badge-off { background: #ef4444; color: #fff; padding: 3px 8px; border-radius: 5px; font-weight: bold; }
         .chat-box { background: #060911; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #38bdf8; }
         .error-box { background: #180909; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #f87171; border: 1px solid #7f1d1d; }
-        .kiru-box { background: #0c1a24; padding: 10px; border-radius: 5px; font-family: monospace; height: 220px; overflow-y: auto; color: #facc15; border: 1px solid #854d0e; }
+        .kiru-box { background: #0c1a24; padding: 10px; border-radius: 5px; font-family: monospace; height: 200px; overflow-y: auto; color: #facc15; border: 1px solid #854d0e; }
         .input-group { display: flex; gap: 10px; margin-top: 10px; }
         input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #334155; background: #0b0f19; color: white; }
         button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
@@ -164,7 +166,7 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
-      <h2>🛡️ Minecraft Bot Control Center</h2>
+      <h2>🛡️ Minecraft Bot Control Center - Optimized Connection</h2>
       
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
@@ -187,7 +189,6 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- NHẬT KÝ ĐẶC BIỆT DÀNH RIÊNG CHO KIRU -->
       <div class="card">
         <h3>🎯 Nhật Ký Nhắc Tên [Kiru] (Lưu trữ vĩnh viễn)</h3>
         <div class="kiru-box">
@@ -232,7 +233,7 @@ function cleanupBot() {
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
 
-  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval, heartbeatInterval];
+  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval, socketHeartbeatInterval];
   intervals.forEach(i => i && clearInterval(i));
 
   const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
@@ -304,7 +305,7 @@ function scheduleNextAction() {
 function scheduleRandomRotation() {
   if (antiAfkTimeout) clearTimeout(antiAfkTimeout);
 
-  const nextRotationDelay = Math.floor(20000 + Math.random() * 25000);
+  const nextRotationDelay = Math.floor(15000 + Math.random() * 20000);
 
   antiAfkTimeout = setTimeout(() => {
     if (bot && bot.entity) {
@@ -372,7 +373,7 @@ function createBot() {
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setNoDelay(true);
-        bot._client.socket.setKeepAlive(true, 5000); 
+        bot._client.socket.setKeepAlive(true, 3000); 
       } catch (e) {}
     }
 
@@ -395,15 +396,38 @@ function createBot() {
         }
       }, 7000);
 
-      // CƠ CHẾ HEARTBEAT PACKET GIỮ SOCKET SỐNG CỨ MỖI 20 GIÂY
-      heartbeatInterval = setInterval(() => {
-        if (bot && bot.entity) {
+      // 1. GIỮ SOCKET & PACKET DỮ LIỆU LIÊN TỤC MỖI 3 GIÂY
+      socketHeartbeatInterval = setInterval(() => {
+        if (bot && bot._client && !bot._client.socket.destroyed) {
           try {
-            bot.swingArm('right');
-            bot.look(bot.entity.yaw + 0.01, bot.entity.pitch, false);
+            if (bot.entity) {
+              bot._client.write('look', {
+                yaw: bot.entity.yaw,
+                pitch: bot.entity.pitch,
+                onGround: bot.entity.onGround
+              });
+            }
           } catch (e) {}
         }
-      }, 20000);
+      }, 3000);
+
+      // 2. XÓA ENTITY RÁC XA NGOÀI 16 BLOCKS & DỌN RAM DƯ THỪA MỖI 30 GIÂY
+      ramGcInterval = setInterval(() => {
+        if (bot && bot.entities && bot.entity && bot.entity.position) {
+          const myPos = bot.entity.position;
+          Object.keys(bot.entities).forEach(id => {
+            const ent = bot.entities[id];
+            if (ent && ent.position && ent.id !== bot.entity.id) {
+              if (ent.position.distanceTo(myPos) > 16) {
+                delete bot.entities[id];
+              }
+            }
+          });
+        }
+        if (global.gc) {
+          try { global.gc(); } catch (e) {}
+        }
+      }, 30000);
 
       pingInterval = setInterval(() => {
         if (bot && bot.player) {
@@ -412,18 +436,12 @@ function createBot() {
         }
       }, 10000);
 
-      ramGcInterval = setInterval(() => {
-        if (global.gc) {
-          try { global.gc(); } catch (e) {}
-        }
-      }, 30 * 1000);
-
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
           currentCoords = `X: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
         }
-      }, 5 * 1000);
+      }, 5000);
 
       watchdogInterval = setInterval(() => {
         if (!bot) return;
@@ -435,7 +453,7 @@ function createBot() {
         if (bot.time) {
           if (bot.time.age === lastTimeAge) {
             if (Date.now() - lastTimeAgeUpdate > 45000) {
-              addErrorLog('Watchdog', 'Mất dữ liệu kết nối (Kẹt Packet). Tự động Reconnect...');
+              addErrorLog('Watchdog', 'Kẹt Packet thế giới quá 45s. Đang tiến hành Reconnect...');
               handleReconnect();
             }
           } else {
@@ -483,7 +501,7 @@ function createBot() {
 
       const lowerText = text.toLowerCase();
 
-      // NẾU TIN NHẮN / THÔNG BÁO CÓ TỪ "KIRU" -> LƯU VÀO BẢNG RIÊNG KHÔNG XOÁ
+      // NẾU CÓ TỪ "KIRU" -> LƯU VÀO NHẬT KÝ VĨNH VIỄN
       if (lowerText.includes('kiru')) {
         addKiruLog(text);
       }
@@ -529,11 +547,16 @@ function handleReconnect() {
   consecutiveFailures++;
 
   if (consecutiveFailures >= 10) {
-    addErrorLog('CẢNH BÁO NẶNG', 'Đứt kết nối nhiều lần liên tiếp. Khởi động lại tiến trình...');
+    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Khởi động lại toàn bộ tiến trình...');
     setTimeout(() => {
       process.exit(1);
     }, 3000);
     return;
+  }
+
+  // ĐẢM BẢO CHỜ ÍT NHẤT 30 GIÂY MỚI RECONNECT ĐỂ TRÁNH BỊ SERVER CHẶN
+  if (currentReconnectDelay < 30000) {
+    currentReconnectDelay = 30000;
   }
 
   console.log(`⏳ Đang chờ ${currentReconnectDelay / 1000}s để tái kết nối...`);
@@ -554,4 +577,3 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   addErrorLog('Unhandled Rejection', String(reason));
 });
-                   
