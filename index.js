@@ -24,9 +24,9 @@ const OPTIONS = {
 let bot = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
+let isManualStopped = false; // BẬT/TẮT BOT THỦ CÔNG
 let isFirstSpawn = true;
 
-// THỜI GIAN RECONNECT TỐI THIỂU 30 GIÂY
 let currentReconnectDelay = 30000; 
 let consecutiveFailures = 0; 
 
@@ -53,7 +53,7 @@ const startTime = Date.now();
 const serverChatLogs = [];
 const errorLogs = [];    
 const pingLogs = [];     
-const kiruMentionLogs = []; // NHẬT KÝ LƯU TRỮ VĨNH VIỄN CÁC TIN NHẮN LIÊN QUAN TỚI KIRU
+const kiruMentionLogs = []; // NHẬT KÝ LƯU TRỮ VĨNH VIỄN
 
 let lastTimeAge = 0;
 let lastTimeAgeUpdate = Date.now();
@@ -102,12 +102,27 @@ function triggerChatWindow(durationMs = 8000) {
 app.get('/api/ping', (req, res) => res.send('PONG_OK'));
 
 app.post('/api/command', (req, res) => {
+  if (isManualStopped) return res.send('Bot đang ở trạng thái TẮT thủ công!');
   const cmd = req.body.command;
   if (!bot || !bot._client) return res.send('Bot đang ngoại tuyến!');
   if (cmd) {
     bot.chat(cmd);
     addChatLog(`[WEB-ADMIN]: ${cmd}`);
     triggerChatWindow(8000);
+  }
+  res.redirect('/');
+});
+
+// ROUTE BẬT / TẮT BOT THỦ CÔNG DE TỰ VÀO GAME
+app.get('/api/toggle-bot', (req, res) => {
+  isManualStopped = !isManualStopped;
+  if (isManualStopped) {
+    addErrorLog('THỦ CÔNG', 'Đã TẮT Bot từ Web Dashboard. Ngắt kết nối để người chơi tự đăng nhập.');
+    cleanupBot();
+  } else {
+    addErrorLog('THỦ CÔNG', 'Đã BẬT lại Bot từ Web Dashboard. Bắt đầu kết nối Server...');
+    consecutiveFailures = 0;
+    createBot();
   }
   res.redirect('/');
 });
@@ -132,29 +147,112 @@ app.get('/', (req, res) => {
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
   const currentWeapon = (bot && bot.heldItem) ? bot.heldItem.displayName : 'Tay không';
 
+  let statusBadge = '<span class="badge-off">OFFLINE</span>';
+  if (isManualStopped) {
+    statusBadge = '<span class="badge-pause">⏸️ ĐÃ TẮT THỦ CÔNG (ĐANG NHƯỜNG NICK)</span>';
+  } else if (bot) {
+    statusBadge = '<span class="badge-on">🟢 ONLINE</span>';
+  } else {
+    statusBadge = `<span class="badge-off">🔄 RECONNECTING (${currentReconnectDelay / 1000}s)</span>`;
+  }
+
   res.send(`
     <!DOCTYPE html>
-    <html>
+    <html lang="vi">
     <head>
       <meta charset="utf-8">
-      <title>Minecraft Bot Control Center</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Kiru Control Center</title>
+      <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
       <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #090d16; color: #f8fafc; padding: 20px; margin: 0; }
-        .card { background: #161e2e; padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #273549; }
-        h2 { margin-top: 0; color: #38bdf8; }
-        .badge-on { background: #22c55e; color: #fff; padding: 3px 8px; border-radius: 5px; font-weight: bold; }
-        .badge-off { background: #ef4444; color: #fff; padding: 3px 8px; border-radius: 5px; font-weight: bold; }
-        .chat-box { background: #060911; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #38bdf8; }
-        .error-box { background: #180909; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #f87171; border: 1px solid #7f1d1d; }
-        .kiru-box { background: #0c1a24; padding: 10px; border-radius: 5px; font-family: monospace; height: 200px; overflow-y: auto; color: #facc15; border: 1px solid #854d0e; }
+        :root {
+          --card-bg: rgba(22, 30, 46, 0.75);
+          --accent-cyan: #38bdf8;
+          --accent-pink: #ec4899;
+          --accent-purple: #a855f7;
+          --accent-green: #22c55e;
+          --accent-red: #ef4444;
+          --accent-yellow: #f59e0b;
+          --border: rgba(56, 189, 248, 0.15);
+        }
+        * { box-sizing: border-box; }
+        body {
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          background: #060911 linear-gradient(135deg, #090d16 0%, #0d1527 50%, #150d2a 100%);
+          background-attachment: fixed;
+          color: #f8fafc;
+          padding: 20px;
+          margin: 0;
+          min-height: 100vh;
+        }
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-bottom: 15px;
+          border-bottom: 2px solid var(--border);
+          margin-bottom: 20px;
+        }
+        h1 {
+          font-family: 'Orbitron', sans-serif;
+          font-size: 1.8rem;
+          margin: 0;
+          background: linear-gradient(90deg, var(--accent-cyan), var(--accent-pink));
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+        .container {
+          display: grid;
+          grid-template-columns: 2fr 1fr;
+          gap: 20px;
+        }
+        @media (max-width: 1024px) { .container { grid-template-columns: 1fr; } }
+        
+        .card {
+          background: var(--card-bg);
+          backdrop-filter: blur(12px);
+          padding: 20px;
+          border-radius: 16px;
+          border: 1px solid var(--border);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+          margin-bottom: 20px;
+        }
+        h3 {
+          margin-top: 0;
+          color: var(--accent-cyan);
+          font-size: 1.1rem;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .badge-on { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
+        .badge-off { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
+        .badge-pause { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
+        
+        .chat-box { background: #04060c; padding: 12px; border-radius: 10px; font-family: monospace; height: 200px; overflow-y: auto; color: #38bdf8; border: 1px solid #1e293b; }
+        .error-box { background: #110505; padding: 12px; border-radius: 10px; font-family: monospace; height: 200px; overflow-y: auto; color: #f87171; border: 1px solid #450a0a; }
+        .kiru-box { background: #0d1512; padding: 12px; border-radius: 10px; font-family: monospace; height: 220px; overflow-y: auto; color: #facc15; border: 1px solid #713f12; }
+        
         .input-group { display: flex; gap: 10px; margin-top: 10px; }
-        input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #334155; background: #0b0f19; color: white; }
-        button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #1d4ed8; }
-        .btn-danger { background: #ef4444; }
-        .btn-danger:hover { background: #dc2626; }
-        .btn-warning { background: #f59e0b; color: black; }
-        .btn-warning:hover { background: #d97706; }
+        input[type="text"] { flex: 1; padding: 12px 15px; border-radius: 10px; border: 1px solid #334155; background: #0b0f19; color: white; outline: none; font-size: 1rem; }
+        input[type="text"]:focus { border-color: var(--accent-cyan); box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+        
+        button { padding: 12px 20px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: all 0.2s ease; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); }
+        .btn-stop { background: linear-gradient(135deg, #dc2626, #991b1b) !important; }
+        .btn-start { background: linear-gradient(135deg, #16a34a, #15803d) !important; }
+        .btn-warning { background: linear-gradient(135deg, #d97706, #b45309) !important; }
+        
+        .anime-card { text-align: center; }
+        .anime-img {
+          width: 100%;
+          max-height: 380px;
+          object-fit: cover;
+          border-radius: 12px;
+          border: 2px solid var(--accent-pink);
+          box-shadow: 0 0 15px rgba(236, 72, 153, 0.3);
+          transition: opacity 0.4s ease-in-out;
+        }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
       </style>
@@ -163,60 +261,96 @@ app.get('/', (req, res) => {
           const input = document.getElementById('cmd-input');
           if (!input || document.activeElement !== input) { location.reload(); }
         }, 5000);
+
+        async function fetchAnimeWaifu() {
+          try {
+            const res = await fetch('https://api.waifu.pics/sfw/waifu');
+            const data = await res.json();
+            if (data && data.url) {
+              const imgEl = document.getElementById('anime-waifu-img');
+              if (imgEl) {
+                imgEl.style.opacity = '0.2';
+                setTimeout(() => {
+                  imgEl.src = data.url;
+                  imgEl.style.opacity = '1';
+                }, 300);
+              }
+            }
+          } catch (e) {}
+        }
+        setInterval(fetchAnimeWaifu, 12000);
+        window.onload = fetchAnimeWaifu;
       </script>
     </head>
     <body>
-      <h2>🛡️ Minecraft Bot Control Center - Optimized Connection</h2>
-      
-      <div class="card">
-        <h3>📌 Trạng Thái Bot</h3>
-        <p>🟢 <b>Kết Nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : `<span class="badge-off">RECONNECTING (${currentReconnectDelay / 1000}s)</span>`}</p>
-        <p>📶 <b>Ping Hiện Tại:</b> <b style="color: #38bdf8;">${currentPing} ms</b> | 📍 <b>Tọa Độ:</b> <code>${currentCoords}</code></p>
-        <p>🗡️ <b>Trang Bị:</b> <code>${currentWeapon}</code> | 📦 <b>Nhặt Vật Phẩm:</b> ${collectedCount} lần</p>
-        <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB | 🕒 <b>Giờ VN:</b> ${getVNTime()}</p>
+      <div class="header">
+        <h1>✨ KIRU CONTROL HUB</h1>
+        <div>${statusBadge}</div>
       </div>
 
-      <div class="card">
-        <h3>⚙️ Thao Tác Điều Khiển</h3>
-        <form class="input-group" action="/api/command" method="POST">
-          <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc tin nhắn vào server..." autocomplete="off" required>
-          <button type="submit">Gửi</button>
-        </form>
-        <div style="display: flex; gap: 10px; margin-top: 10px;">
-          <a href="/api/clear-error-log" style="text-decoration: none; flex: 1;"><button type="button" class="btn-warning" style="width: 100%;">🧹 Xóa Nhật Ký Lỗi</button></a>
-          <a href="/api/clear-kiru-log" style="text-decoration: none; flex: 1;"><button type="button" class="btn-warning" style="width: 100%;">🧹 Xóa Nhật Ký Kiru (${kiruMentionLogs.length})</button></a>
-          <a href="/api/hard-restart" style="text-decoration: none; flex: 1;" onclick="return confirm('Khởi động lại toàn bộ Tiến Trình Code?');"><button type="button" class="btn-danger" style="width: 100%;">🔄 Reset Toàn Bộ Code</button></a>
-        </div>
-      </div>
+      <div class="container">
+        <div>
+          <div class="card">
+            <h3>🎮 Trạng Thái & Thao Tác Chính</h3>
+            <p>📶 <b>Ping:</b> <b style="color: var(--accent-cyan);">${currentPing} ms</b> | 📍 <b>Tọa Độ:</b> <code>${currentCoords}</code></p>
+            <p>🗡️ <b>Trang Bị:</b> <code>${currentWeapon}</code> | 📦 <b>Nhặt Vật Phẩm:</b> ${collectedCount} lần</p>
+            <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB</p>
 
-      <div class="card">
-        <h3>🎯 Nhật Ký Nhắc Tên [Kiru] (Lưu trữ vĩnh viễn)</h3>
-        <div class="kiru-box">
-          ${kiruMentionLogs.length > 0 
-            ? kiruMentionLogs.map(k => `<div>[${k.time}]${k.text}</div>`).join('') 
-            : '<i>Chưa có tin nhắn hoặc thông báo nào nhắc đến Kiru...</i>'}
-        </div>
-      </div>
+            <form class="input-group" action="/api/command" method="POST">
+              <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc tin nhắn vào server..." autocomplete="off" required>
+              <button type="submit">Gửi</button>
+            </form>
 
-      <div class="grid-2">
-        <div class="card">
-          <h3>💬 Nhật Ký Chat Server</h3>
-          <div class="chat-box">
-            ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
+            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+              ${isManualStopped 
+                ? `<a href="/api/toggle-bot" style="text-decoration: none; flex: 1;"><button type="button" class="btn-start" style="width: 100%;">▶️ BẬT BOT (KẾT NỐI SERVER)</button></a>`
+                : `<a href="/api/toggle-bot" style="text-decoration: none; flex: 1;"><button type="button" class="btn-stop" style="width: 100%;">⏸️ TẮT BOT (ĐỂ TỰ VÀO GAME)</button></a>`
+              }
+              <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning">🧹 Xóa Lỗi</button></a>
+              <a href="/api/clear-kiru-log" style="text-decoration: none;"><button type="button" class="btn-warning">🧹 Kiru Log (${kiruMentionLogs.length})</button></a>
+              <a href="/api/hard-restart" style="text-decoration: none;" onclick="return confirm('Reset toàn bộ Tiến Trình Code?');"><button type="button" class="btn-stop">🔄 Reset App</button></a>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>⭐ Nhật Ký Nhắc Tên [Kiru] (Lưu vĩnh viễn)</h3>
+            <div class="kiru-box">
+              ${kiruMentionLogs.length > 0 
+                ? kiruMentionLogs.map(k => `<div>[${k.time}]${k.text}</div>`).join('') 
+                : '<i>Chưa có tin nhắn hoặc thông báo nào nhắc đến Kiru...</i>'}
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="card">
+              <h3>💬 Chat Server</h3>
+              <div class="chat-box">
+                ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>🚨 Nhật Ký Lỗi Phát Sinh</h3>
+              <div class="error-box">
+                ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <h3>🚨 Nhật Ký Lỗi Phát Sinh (Đầy đủ)</h3>
-          <div class="error-box">
-            ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:#22c55e;">Không có lỗi phát sinh!</div>'}
+        <div>
+          <!-- HIỂN THỊ ẢNH ANIME TỰ ĐỘNG XOAY TUA -->
+          <div class="card anime-card">
+            <h3 style="justify-content: center; color: var(--accent-pink);">💖 Anime Waifu Companion</h3>
+            <img id="anime-waifu-img" class="anime-img" src="https://pic.re/image" alt="Anime Waifu" onerror="this.src='https://pic.re/image'">
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">Tự động đổi ảnh waifu mỗi 12 giây ✨</p>
+          </div>
+
+          <div class="card">
+            <h3>📊 Lịch Sử Ping (15 lần gần nhất)</h3>
+            <p><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập dữ liệu...'}</code></p>
           </div>
         </div>
-      </div>
-
-      <div class="card">
-        <h3>📊 Lịch Sử Ping (15 Lần Gần Nhất)</h3>
-        <p><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập dữ liệu...'}</code></p>
       </div>
     </body>
     </html>
@@ -264,7 +398,7 @@ function cleanupBot() {
 function scheduleNextAction() {
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
 
-  if (!bot || !bot._client || bot._client.socket.destroyed) {
+  if (isManualStopped || !bot || !bot._client || bot._client.socket.destroyed) {
     isAutoActionRunning = false;
     return;
   }
@@ -305,6 +439,8 @@ function scheduleNextAction() {
 function scheduleRandomRotation() {
   if (antiAfkTimeout) clearTimeout(antiAfkTimeout);
 
+  if (isManualStopped) return;
+
   const nextRotationDelay = Math.floor(15000 + Math.random() * 20000);
 
   antiAfkTimeout = setTimeout(() => {
@@ -320,6 +456,8 @@ function scheduleRandomRotation() {
 }
 
 function createBot() {
+  if (isManualStopped) return;
+
   cleanupBot();
   isFirstSpawn = true;
   lastTimeAge = 0;
@@ -381,14 +519,14 @@ function createBot() {
       isFirstSpawn = false;
 
       loginTimer1 = setTimeout(() => {
-        if (bot && bot._client) {
+        if (bot && bot._client && !isManualStopped) {
           bot.chat('/l Kiru2000@');
           triggerChatWindow(4000);
         }
       }, 3500);
 
       loginTimer2 = setTimeout(() => {
-        if (bot && bot._client) {
+        if (bot && bot._client && !isManualStopped) {
           bot.chat('/afkmode vao');
           triggerChatWindow(6000);
           scheduleNextAction();
@@ -396,22 +534,21 @@ function createBot() {
         }
       }, 7000);
 
-      // 1. GIỮ SOCKET & PACKET DỮ LIỆU LIÊN TỤC MỖI 3 GIÂY
+      // KHẮC PHỤC TRIỆT ĐỂ LỖI SERIALIZATION _value undefined
       socketHeartbeatInterval = setInterval(() => {
-        if (bot && bot._client && !bot._client.socket.destroyed) {
+        if (!isManualStopped && bot && bot._client && !bot._client.socket.destroyed) {
           try {
-            if (bot.entity) {
+            if (bot.entity && typeof bot.entity.yaw === 'number' && typeof bot.entity.pitch === 'number') {
               bot._client.write('look', {
                 yaw: bot.entity.yaw,
                 pitch: bot.entity.pitch,
-                onGround: bot.entity.onGround
+                onGround: Boolean(bot.entity.onGround)
               });
             }
           } catch (e) {}
         }
       }, 3000);
 
-      // 2. XÓA ENTITY RÁC XA NGOÀI 16 BLOCKS & DỌN RAM DƯ THỪA MỖI 30 GIÂY
       ramGcInterval = setInterval(() => {
         if (bot && bot.entities && bot.entity && bot.entity.position) {
           const myPos = bot.entity.position;
@@ -444,7 +581,7 @@ function createBot() {
       }, 5000);
 
       watchdogInterval = setInterval(() => {
-        if (!bot) return;
+        if (!bot || isManualStopped) return;
 
         if (!isAutoActionRunning || Date.now() - lastActionTime > 15000) {
           scheduleNextAction();
@@ -470,12 +607,12 @@ function createBot() {
     addErrorLog('Event Chết', 'Bot bị quái hoặc người chơi đánh tử vong');
 
     respawnTimer = setTimeout(() => {
-      if (bot && bot._client) {
+      if (bot && bot._client && !isManualStopped) {
         try { bot.respawn(); } catch (e) {}
       }
 
       setTimeout(() => {
-        if (bot && bot._client) {
+        if (bot && bot._client && !isManualStopped) {
           bot.chat('/afkmode vao');
           addChatLog('⌨️ Đã hồi sinh -> /afkmode vao');
           triggerChatWindow(5000);
@@ -501,7 +638,6 @@ function createBot() {
 
       const lowerText = text.toLowerCase();
 
-      // NẾU CÓ TỪ "KIRU" -> LƯU VÀO NHẬT KÝ VĨNH VIỄN
       if (lowerText.includes('kiru')) {
         addKiruLog(text);
       }
@@ -540,7 +676,7 @@ function createBot() {
 }
 
 function handleReconnect() {
-  if (isReconnecting) return;
+  if (isManualStopped || isReconnecting) return;
   isReconnecting = true;
   cleanupBot();
 
@@ -554,7 +690,6 @@ function handleReconnect() {
     return;
   }
 
-  // ĐẢM BẢO CHỜ ÍT NHẤT 30 GIÂY MỚI RECONNECT ĐỂ TRÁNH BỊ SERVER CHẶN
   if (currentReconnectDelay < 30000) {
     currentReconnectDelay = 30000;
   }
