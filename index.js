@@ -7,15 +7,14 @@ const port = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// ÉP MÚI GIỜ VIỆT NAM TOÀN HỆ THỐNG
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 const OPTIONS = {
   host: 'vangioinetwork.xyz',
   port: 19000,
   username: 'Kiru',
-  hideErrors: true,
-  checkTimeoutInterval: 120 * 1000, 
+  hideErrors: false,
+  checkTimeoutInterval: 60 * 1000, 
   keepAlive: true,
   physicsEnabled: true,
   viewDistance: 'tiny'
@@ -26,7 +25,7 @@ let reconnectTimeout = null;
 let isReconnecting = false;
 let isFirstSpawn = true;
 
-let currentReconnectDelay = 30000; // Giảm thời gian chờ kết nối lại xuống 30s
+let currentReconnectDelay = 15000; 
 let consecutiveFailures = 0; 
 
 let actionTimeout = null;
@@ -35,6 +34,7 @@ let ramGcInterval = null;
 let posCheckInterval = null;
 let watchdogInterval = null;
 let pingInterval = null;
+let heartbeatInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
 let respawnTimer = null;
@@ -51,11 +51,11 @@ const startTime = Date.now();
 const serverChatLogs = [];
 const errorLogs = [];    
 const pingLogs = [];     
+const kiruMentionLogs = []; // BỘ LƯU TRỮ NHẮC TÊN KIRU (KHÔNG TỰ XÓA)
 
 let lastTimeAge = 0;
 let lastTimeAgeUpdate = Date.now();
 
-// HÀM LẤY GIỜ VIỆT NAM CHUẨN (UTC+7)
 function getVNTime() {
   return new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 }
@@ -80,6 +80,13 @@ function addPingLog(pingVal) {
     ping: pingVal
   });
   if (pingLogs.length > 15) pingLogs.pop();
+}
+
+function addKiruLog(msg) {
+  kiruMentionLogs.unshift({
+    time: getVNTime(),
+    text: msg
+  });
 }
 
 function triggerChatWindow(durationMs = 8000) {
@@ -108,6 +115,11 @@ app.get('/api/clear-error-log', (req, res) => {
   res.redirect('/');
 });
 
+app.get('/api/clear-kiru-log', (req, res) => {
+  kiruMentionLogs.length = 0;
+  res.redirect('/');
+});
+
 app.get('/api/hard-restart', (req, res) => {
   addErrorLog('HỆ THỐNG', 'Khởi động lại tiến trình Node.js thủ công...');
   process.exit(1); 
@@ -123,15 +135,16 @@ app.get('/', (req, res) => {
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Minecraft Bot - VN Time & Anti-ECONNRESET</title>
+      <title>Minecraft Bot Control Center</title>
       <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #090d16; color: #f8fafc; padding: 20px; margin: 0; }
         .card { background: #161e2e; padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #273549; }
         h2 { margin-top: 0; color: #38bdf8; }
         .badge-on { background: #22c55e; color: #fff; padding: 3px 8px; border-radius: 5px; font-weight: bold; }
         .badge-off { background: #ef4444; color: #fff; padding: 3px 8px; border-radius: 5px; font-weight: bold; }
-        .chat-box { background: #060911; padding: 10px; border-radius: 5px; font-family: monospace; height: 200px; overflow-y: auto; color: #38bdf8; }
-        .error-box { background: #180909; padding: 10px; border-radius: 5px; font-family: monospace; height: 200px; overflow-y: auto; color: #f87171; border: 1px solid #7f1d1d; }
+        .chat-box { background: #060911; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #38bdf8; }
+        .error-box { background: #180909; padding: 10px; border-radius: 5px; font-family: monospace; height: 180px; overflow-y: auto; color: #f87171; border: 1px solid #7f1d1d; }
+        .kiru-box { background: #0c1a24; padding: 10px; border-radius: 5px; font-family: monospace; height: 220px; overflow-y: auto; color: #facc15; border: 1px solid #854d0e; }
         .input-group { display: flex; gap: 10px; margin-top: 10px; }
         input[type="text"] { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #334155; background: #0b0f19; color: white; }
         button { padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
@@ -151,7 +164,7 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
-      <h2>🛡️ Minecraft Bot Control Center (Múi Giờ VN & Chống ECONNRESET)</h2>
+      <h2>🛡️ Minecraft Bot Control Center</h2>
       
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
@@ -169,7 +182,18 @@ app.get('/', (req, res) => {
         </form>
         <div style="display: flex; gap: 10px; margin-top: 10px;">
           <a href="/api/clear-error-log" style="text-decoration: none; flex: 1;"><button type="button" class="btn-warning" style="width: 100%;">🧹 Xóa Nhật Ký Lỗi</button></a>
+          <a href="/api/clear-kiru-log" style="text-decoration: none; flex: 1;"><button type="button" class="btn-warning" style="width: 100%;">🧹 Xóa Nhật Ký Kiru (${kiruMentionLogs.length})</button></a>
           <a href="/api/hard-restart" style="text-decoration: none; flex: 1;" onclick="return confirm('Khởi động lại toàn bộ Tiến Trình Code?');"><button type="button" class="btn-danger" style="width: 100%;">🔄 Reset Toàn Bộ Code</button></a>
+        </div>
+      </div>
+
+      <!-- NHẬT KÝ ĐẶC BIỆT DÀNH RIÊNG CHO KIRU -->
+      <div class="card">
+        <h3>🎯 Nhật Ký Nhắc Tên [Kiru] (Lưu trữ vĩnh viễn)</h3>
+        <div class="kiru-box">
+          ${kiruMentionLogs.length > 0 
+            ? kiruMentionLogs.map(k => `<div>[${k.time}]${k.text}</div>`).join('') 
+            : '<i>Chưa có tin nhắn hoặc thông báo nào nhắc đến Kiru...</i>'}
         </div>
       </div>
 
@@ -182,7 +206,7 @@ app.get('/', (req, res) => {
         </div>
 
         <div class="card">
-          <h3>🚨 Nhật Ký Lỗi Phát Sinh</h3>
+          <h3>🚨 Nhật Ký Lỗi Phát Sinh (Đầy đủ)</h3>
           <div class="error-box">
             ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:#22c55e;">Không có lỗi phát sinh!</div>'}
           </div>
@@ -208,7 +232,7 @@ function cleanupBot() {
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
 
-  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval];
+  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval, heartbeatInterval];
   intervals.forEach(i => i && clearInterval(i));
 
   const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
@@ -280,7 +304,7 @@ function scheduleNextAction() {
 function scheduleRandomRotation() {
   if (antiAfkTimeout) clearTimeout(antiAfkTimeout);
 
-  const nextRotationDelay = Math.floor(30000 + Math.random() * 40000);
+  const nextRotationDelay = Math.floor(20000 + Math.random() * 25000);
 
   antiAfkTimeout = setTimeout(() => {
     if (bot && bot.entity) {
@@ -320,10 +344,7 @@ function createBot() {
     if (bot._client) {
       bot._client.setMaxListeners(0);
       bot._client.on('error', (err) => {
-        // Lọc bỏ log rác ECONNRESET để tránh làm rối bảng điều khiển
-        if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
-          addErrorLog('Client Socket Error', err.message || err.code || 'Unknown TCP error');
-        }
+        addErrorLog('Client Socket Error', err.message || err.code || 'Unknown TCP error');
       });
     }
   } catch (err) {
@@ -348,7 +369,6 @@ function createBot() {
       }
     } catch (e) {}
 
-    // BỔ SUNG CẤU HÌNH TCP KEEP-ALIVE SIÊU TẦN SỐ (5 SÂY/LẦN) ĐỂ TRÁNH RENDER TỰ NGẮT
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setNoDelay(true);
@@ -374,6 +394,16 @@ function createBot() {
           scheduleRandomRotation();
         }
       }, 7000);
+
+      // CƠ CHẾ HEARTBEAT PACKET GIỮ SOCKET SỐNG CỨ MỖI 20 GIÂY
+      heartbeatInterval = setInterval(() => {
+        if (bot && bot.entity) {
+          try {
+            bot.swingArm('right');
+            bot.look(bot.entity.yaw + 0.01, bot.entity.pitch, false);
+          } catch (e) {}
+        }
+      }, 20000);
 
       pingInterval = setInterval(() => {
         if (bot && bot.player) {
@@ -453,6 +483,11 @@ function createBot() {
 
       const lowerText = text.toLowerCase();
 
+      // NẾU TIN NHẮN / THÔNG BÁO CÓ TỪ "KIRU" -> LƯU VÀO BẢNG RIÊNG KHÔNG XOÁ
+      if (lowerText.includes('kiru')) {
+        addKiruLog(text);
+      }
+
       if (
         text.includes('█') || 
         lowerText.includes('hồi chiêu') || 
@@ -477,9 +512,7 @@ function createBot() {
   });
 
   bot.on('error', (err) => {
-    if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
-      addErrorLog('Mineflayer Error', err.message || err.toString());
-    }
+    addErrorLog('Mineflayer Error', err.message || err.toString());
   });
 
   bot.on('kicked', (reason) => {
@@ -495,7 +528,7 @@ function handleReconnect() {
 
   consecutiveFailures++;
 
-  if (consecutiveFailures >= 8) {
+  if (consecutiveFailures >= 10) {
     addErrorLog('CẢNH BÁO NẶNG', 'Đứt kết nối nhiều lần liên tiếp. Khởi động lại tiến trình...');
     setTimeout(() => {
       process.exit(1);
@@ -513,19 +546,7 @@ function handleReconnect() {
 
 createBot();
 
-const ignoreErrorKeywords = [
-  'socketclosed', 'econnreset', 'etimedout', 'epipe', 'enotfound',
-  'partialreaderror', 'packet_world_particles', 'read econnreset', 'write econnreset'
-];
-
 process.on('uncaughtException', (err) => {
-  const msg = (err.message || '').toLowerCase();
-  const code = (err.code || '').toUpperCase();
-
-  if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
-    return;
-  }
-
   addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
   handleReconnect();
 });
@@ -533,3 +554,4 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   addErrorLog('Unhandled Rejection', String(reason));
 });
+                   
