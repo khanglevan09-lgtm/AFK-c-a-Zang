@@ -7,16 +7,18 @@ const port = process.env.PORT || 10000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- CẤU HÌNH BOT MINECRAFT ---
+// ÉP MÚI GIỜ VIỆT NAM TOÀN HỆ THỐNG
+process.env.TZ = 'Asia/Ho_Chi_Minh';
+
 const OPTIONS = {
   host: 'vangioinetwork.xyz',
   port: 19000,
   username: 'Kiru',
   hideErrors: true,
-  checkTimeoutInterval: 120 * 1000, // Tăng thời gian chờ timeout lên 2 phút
+  checkTimeoutInterval: 120 * 1000, 
   keepAlive: true,
-  physicsEnabled: true,             // BẬT VẬT LÝ ĐỂ BOT HOẠT ĐỘNG BÌNH THƯỜNG
-  viewDistance: 'tiny'              // TẢI CHUNK NHỎ NHẤT ĐỂ GIẢM TẢI CPU
+  physicsEnabled: true,
+  viewDistance: 'tiny'
 };
 
 let bot = null;
@@ -24,7 +26,7 @@ let reconnectTimeout = null;
 let isReconnecting = false;
 let isFirstSpawn = true;
 
-let currentReconnectDelay = 60000; 
+let currentReconnectDelay = 30000; // Giảm thời gian chờ kết nối lại xuống 30s
 let consecutiveFailures = 0; 
 
 let actionTimeout = null;
@@ -53,14 +55,19 @@ const pingLogs = [];
 let lastTimeAge = 0;
 let lastTimeAgeUpdate = Date.now();
 
+// HÀM LẤY GIỜ VIỆT NAM CHUẨN (UTC+7)
+function getVNTime() {
+  return new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
+}
+
 function addChatLog(msg) {
-  serverChatLogs.unshift(`[${new Date().toLocaleTimeString('vi-VN')}] ${msg}`);
+  serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
   if (serverChatLogs.length > 25) serverChatLogs.pop();
 }
 
 function addErrorLog(type, details) {
   errorLogs.unshift({
-    time: new Date().toLocaleTimeString('vi-VN'),
+    time: getVNTime(),
     type: type,
     details: details
   });
@@ -69,7 +76,7 @@ function addErrorLog(type, details) {
 
 function addPingLog(pingVal) {
   pingLogs.unshift({
-    time: new Date().toLocaleTimeString('vi-VN'),
+    time: getVNTime(),
     ping: pingVal
   });
   if (pingLogs.length > 15) pingLogs.pop();
@@ -116,7 +123,7 @@ app.get('/', (req, res) => {
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Minecraft Bot Control Center - Persistent Connection</title>
+      <title>Minecraft Bot - VN Time & Anti-ECONNRESET</title>
       <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #090d16; color: #f8fafc; padding: 20px; margin: 0; }
         .card { background: #161e2e; padding: 15px; margin-bottom: 15px; border-radius: 10px; border: 1px solid #273549; }
@@ -144,14 +151,14 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
-      <h2>🛡️ Minecraft Bot Control Center (Không Tự Ngắt Khi Ping Cao)</h2>
+      <h2>🛡️ Minecraft Bot Control Center (Múi Giờ VN & Chống ECONNRESET)</h2>
       
       <div class="card">
         <h3>📌 Trạng Thái Bot</h3>
         <p>🟢 <b>Kết Nối Server:</b> ${bot ? '<span class="badge-on">ONLINE</span>' : `<span class="badge-off">RECONNECTING (${currentReconnectDelay / 1000}s)</span>`}</p>
         <p>📶 <b>Ping Hiện Tại:</b> <b style="color: #38bdf8;">${currentPing} ms</b> | 📍 <b>Tọa Độ:</b> <code>${currentCoords}</code></p>
         <p>🗡️ <b>Trang Bị:</b> <code>${currentWeapon}</code> | 📦 <b>Nhặt Vật Phẩm:</b> ${collectedCount} lần</p>
-        <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB</p>
+        <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB | 🕒 <b>Giờ VN:</b> ${getVNTime()}</p>
       </div>
 
       <div class="card">
@@ -299,7 +306,6 @@ function createBot() {
     bot = mineflayer.createBot(OPTIONS);
     bot.setMaxListeners(0);
 
-    // LỌC BỎ PACKET PHỤ ĐỂ TIẾT KIỆM CPU RENDER
     bot._client.on('packet', (data, meta) => {
       if (
         meta.name === 'world_particles' || 
@@ -314,7 +320,10 @@ function createBot() {
     if (bot._client) {
       bot._client.setMaxListeners(0);
       bot._client.on('error', (err) => {
-        addErrorLog('Client Socket Error', err.message || err.code || 'Unknown TCP error');
+        // Lọc bỏ log rác ECONNRESET để tránh làm rối bảng điều khiển
+        if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+          addErrorLog('Client Socket Error', err.message || err.code || 'Unknown TCP error');
+        }
       });
     }
   } catch (err) {
@@ -339,10 +348,11 @@ function createBot() {
       }
     } catch (e) {}
 
+    // BỔ SUNG CẤU HÌNH TCP KEEP-ALIVE SIÊU TẦN SỐ (5 SÂY/LẦN) ĐỂ TRÁNH RENDER TỰ NGẮT
     if (bot._client && bot._client.socket) {
       try {
         bot._client.socket.setNoDelay(true);
-        bot._client.socket.setKeepAlive(true, 15000);
+        bot._client.socket.setKeepAlive(true, 5000); 
       } catch (e) {}
     }
 
@@ -388,18 +398,14 @@ function createBot() {
       watchdogInterval = setInterval(() => {
         if (!bot) return;
 
-        // BỎ HOÀN TOÀN TÍNH NĂNG NGẮT KHI PING CAO
-        // Bot vẫn sẽ giữ kết nối liên tục kể cả khi Ping tăng cao
-
         if (!isAutoActionRunning || Date.now() - lastActionTime > 15000) {
           scheduleNextAction();
         }
 
-        // Chỉ Reconnect khi Server ngưng trả về thời gian thế giới quá 45 giây (kẹt packet thực sự)
         if (bot.time) {
           if (bot.time.age === lastTimeAge) {
             if (Date.now() - lastTimeAgeUpdate > 45000) {
-              addErrorLog('Watchdog', 'Mất dữ liệu kết nối thực sự (Kẹt Packet). Bắt buộc Reconnect!');
+              addErrorLog('Watchdog', 'Mất dữ liệu kết nối (Kẹt Packet). Tự động Reconnect...');
               handleReconnect();
             }
           } else {
@@ -465,14 +471,13 @@ function createBot() {
     } catch (e) {}
   });
 
-  // Chỉ Reconnect khi thực sự bị đứt kết nối từ Socket hoặc Server
   bot.on('end', (reason) => {
-    addErrorLog('Mất Kết Nối (End)', `Server ngắt kết nối thực tế: ${reason}`);
+    addErrorLog('Mất Kết Nối (End)', `Đường truyền bị ngắt: ${reason}`);
     handleReconnect();
   });
 
   bot.on('error', (err) => {
-    if (err.code !== 'ECONNRESET') {
+    if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
       addErrorLog('Mineflayer Error', err.message || err.toString());
     }
   });
@@ -490,8 +495,8 @@ function handleReconnect() {
 
   consecutiveFailures++;
 
-  if (consecutiveFailures >= 5) {
-    addErrorLog('CẢNH BÁO NẶNG', 'Đứt kết nối 5 lần liên tiếp. Khởi động lại toàn bộ Tiến Trình...');
+  if (consecutiveFailures >= 8) {
+    addErrorLog('CẢNH BÁO NẶNG', 'Đứt kết nối nhiều lần liên tiếp. Khởi động lại tiến trình...');
     setTimeout(() => {
       process.exit(1);
     }, 3000);
@@ -502,12 +507,6 @@ function handleReconnect() {
   
   reconnectTimeout = setTimeout(() => {
     isReconnecting = false;
-
-    currentReconnectDelay += 15000;
-    if (currentReconnectDelay > 120000) {
-      currentReconnectDelay = 60000;
-    }
-
     createBot();
   }, currentReconnectDelay);
 }
@@ -523,16 +522,14 @@ process.on('uncaughtException', (err) => {
   const msg = (err.message || '').toLowerCase();
   const code = (err.code || '').toUpperCase();
 
-  addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
-
   if (ignoreErrorKeywords.some(k => msg.includes(k) || code === k.toUpperCase())) {
     return;
   }
 
+  addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
   handleReconnect();
 });
 
 process.on('unhandledRejection', (reason) => {
   addErrorLog('Unhandled Rejection', String(reason));
 });
-                           
