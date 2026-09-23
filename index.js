@@ -27,7 +27,7 @@ let isReconnecting = false;
 let isManualStopped = false; // BẬT/TẮT BOT THỦ CÔNG
 let isFirstSpawn = true;
 
-let currentReconnectDelay = 30000; 
+let currentReconnectDelay = 12000; // Tăng delay mặc định lên 12s để server kịp dọn session
 let consecutiveFailures = 0; 
 
 let actionTimeout = null;
@@ -36,7 +36,6 @@ let ramGcInterval = null;
 let posCheckInterval = null;
 let watchdogInterval = null;
 let pingInterval = null;
-let socketHeartbeatInterval = null;
 let loginTimer1 = null;
 let loginTimer2 = null;
 let respawnTimer = null;
@@ -53,7 +52,7 @@ const startTime = Date.now();
 const serverChatLogs = [];
 const errorLogs = [];    
 const pingLogs = [];     
-const kiruMentionLogs = []; // NHẬT KÝ LƯU TRỮ VĨNH VIỄN
+const kiruMentionLogs = [];
 
 let lastTimeAge = 0;
 let lastTimeAgeUpdate = Date.now();
@@ -113,14 +112,13 @@ app.post('/api/command', (req, res) => {
   res.redirect('/');
 });
 
-// ROUTE BẬT / TẮT BOT THỦ CÔNG DE TỰ VÀO GAME
 app.get('/api/toggle-bot', (req, res) => {
   isManualStopped = !isManualStopped;
   if (isManualStopped) {
-    addErrorLog('THỦ CÔNG', 'Đã TẮT Bot từ Web Dashboard. Ngắt kết nối để người chơi tự đăng nhập.');
+    addErrorLog('THỦ CÔNG', 'Đã TẮT Bot từ Dashboard. Ngắt kết nối để tự đăng nhập game.');
     cleanupBot();
   } else {
-    addErrorLog('THỦ CÔNG', 'Đã BẬT lại Bot từ Web Dashboard. Bắt đầu kết nối Server...');
+    addErrorLog('THỦ CÔNG', 'Đã BẬT lại Bot từ Dashboard. Đang kết nối lại Server...');
     consecutiveFailures = 0;
     createBot();
   }
@@ -138,7 +136,7 @@ app.get('/api/clear-kiru-log', (req, res) => {
 });
 
 app.get('/api/hard-restart', (req, res) => {
-  addErrorLog('HỆ THỐNG', 'Khởi động lại tiến trình Node.js thủ công...');
+  addErrorLog('HỆ THỐNG', 'Khởi động lại tiến trình Node.js...');
   process.exit(1); 
 });
 
@@ -147,13 +145,13 @@ app.get('/', (req, res) => {
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
   const currentWeapon = (bot && bot.heldItem) ? bot.heldItem.displayName : 'Tay không';
 
-  let statusBadge = '<span class="badge-off">OFFLINE</span>';
+  let statusBadge = '<span class="badge-off">🔴 OFFLINE</span>';
   if (isManualStopped) {
-    statusBadge = '<span class="badge-pause">⏸️ ĐÃ TẮT THỦ CÔNG (ĐANG NHƯỜNG NICK)</span>';
-  } else if (bot) {
+    statusBadge = '<span class="badge-pause">⏸️ ĐÃ TẮT THỦ CÔNG (NHƯỜNG NICK)</span>';
+  } else if (bot && bot._client && bot._client.state === 'play') {
     statusBadge = '<span class="badge-on">🟢 ONLINE</span>';
   } else {
-    statusBadge = `<span class="badge-off">🔄 RECONNECTING (${currentReconnectDelay / 1000}s)</span>`;
+    statusBadge = `<span class="badge-off">🔄 RECONNECTING (${Math.round(currentReconnectDelay / 1000)}s)</span>`;
   }
 
   res.send(`
@@ -162,29 +160,42 @@ app.get('/', (req, res) => {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Kiru Control Center</title>
+      <title>Kiru Cyber Control Hub</title>
       <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
       <style>
         :root {
-          --card-bg: rgba(22, 30, 46, 0.75);
+          --card-bg: rgba(10, 14, 26, 0.78);
           --accent-cyan: #38bdf8;
-          --accent-pink: #ec4899;
-          --accent-purple: #a855f7;
-          --accent-green: #22c55e;
-          --accent-red: #ef4444;
-          --accent-yellow: #f59e0b;
-          --border: rgba(56, 189, 248, 0.15);
+          --accent-pink: #f43f5e;
+          --accent-purple: #c084fc;
+          --accent-green: #4ade80;
+          --accent-yellow: #fbbf24;
+          --border: rgba(244, 63, 94, 0.25);
         }
         * { box-sizing: border-box; }
+        
         body {
           font-family: 'Plus Jakarta Sans', sans-serif;
-          background: #060911 linear-gradient(135deg, #090d16 0%, #0d1527 50%, #150d2a 100%);
-          background-attachment: fixed;
-          color: #f8fafc;
-          padding: 20px;
           margin: 0;
+          padding: 20px;
+          color: #f8fafc;
           min-height: 100vh;
+          background: #05070f url('https://api.waifu.pics/sfw/waifu') no-repeat center center fixed;
+          background-size: cover;
+          transition: background-image 1s ease-in-out;
+          position: relative;
         }
+
+        /* Lớp phủ mờ giúp đọc UI rõ trên nền ảnh */
+        body::before {
+          content: '';
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(4, 6, 14, 0.65);
+          backdrop-filter: blur(8px);
+          z-index: -1;
+        }
+
         .header {
           display: flex;
           align-items: center;
@@ -195,11 +206,12 @@ app.get('/', (req, res) => {
         }
         h1 {
           font-family: 'Orbitron', sans-serif;
-          font-size: 1.8rem;
+          font-size: 2rem;
           margin: 0;
-          background: linear-gradient(90deg, var(--accent-cyan), var(--accent-pink));
+          background: linear-gradient(90deg, #38bdf8, #f43f5e, #c084fc);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
+          text-shadow: 0 0 20px rgba(244, 63, 94, 0.4);
         }
         .container {
           display: grid;
@@ -210,76 +222,65 @@ app.get('/', (req, res) => {
         
         .card {
           background: var(--card-bg);
-          backdrop-filter: blur(12px);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
           padding: 20px;
-          border-radius: 16px;
+          border-radius: 18px;
           border: 1px solid var(--border);
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
           margin-bottom: 20px;
         }
         h3 {
           margin-top: 0;
           color: var(--accent-cyan);
-          font-size: 1.1rem;
+          font-size: 1.15rem;
           display: flex;
           align-items: center;
           gap: 8px;
         }
-        .badge-on { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
-        .badge-off { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
-        .badge-pause { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; padding: 4px 12px; border-radius: 20px; font-weight: bold; }
+        .badge-on { background: rgba(74, 222, 128, 0.2); color: #4ade80; border: 1px solid #22c55e; padding: 6px 14px; border-radius: 20px; font-weight: bold; }
+        .badge-off { background: rgba(244, 63, 94, 0.2); color: #f43f5e; border: 1px solid #f43f5e; padding: 6px 14px; border-radius: 20px; font-weight: bold; }
+        .badge-pause { background: rgba(251, 191, 36, 0.2); color: #fbbf24; border: 1px solid #f59e0b; padding: 6px 14px; border-radius: 20px; font-weight: bold; }
         
-        .chat-box { background: #04060c; padding: 12px; border-radius: 10px; font-family: monospace; height: 200px; overflow-y: auto; color: #38bdf8; border: 1px solid #1e293b; }
-        .error-box { background: #110505; padding: 12px; border-radius: 10px; font-family: monospace; height: 200px; overflow-y: auto; color: #f87171; border: 1px solid #450a0a; }
-        .kiru-box { background: #0d1512; padding: 12px; border-radius: 10px; font-family: monospace; height: 220px; overflow-y: auto; color: #facc15; border: 1px solid #713f12; }
+        .chat-box { background: rgba(0, 0, 0, 0.6); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); }
+        .error-box { background: rgba(20, 5, 5, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.3); }
+        .kiru-box { background: rgba(15, 23, 15, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 200px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); }
         
-        .input-group { display: flex; gap: 10px; margin-top: 10px; }
-        input[type="text"] { flex: 1; padding: 12px 15px; border-radius: 10px; border: 1px solid #334155; background: #0b0f19; color: white; outline: none; font-size: 1rem; }
-        input[type="text"]:focus { border-color: var(--accent-cyan); box-shadow: 0 0 10px rgba(56, 189, 248, 0.3); }
+        .input-group { display: flex; gap: 10px; margin-top: 15px; }
+        input[type="text"] { flex: 1; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(0, 0, 0, 0.5); color: white; outline: none; font-size: 1rem; }
+        input[type="text"]:focus { border-color: var(--accent-pink); box-shadow: 0 0 12px rgba(244, 63, 94, 0.4); }
         
-        button { padding: 12px 20px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: all 0.2s ease; }
-        button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); }
+        button { padding: 12px 20px; background: linear-gradient(135deg, #e11d48, #be123c); color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: bold; transition: all 0.25s ease; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(225, 29, 72, 0.5); }
         .btn-stop { background: linear-gradient(135deg, #dc2626, #991b1b) !important; }
         .btn-start { background: linear-gradient(135deg, #16a34a, #15803d) !important; }
         .btn-warning { background: linear-gradient(135deg, #d97706, #b45309) !important; }
         
-        .anime-card { text-align: center; }
-        .anime-img {
-          width: 100%;
-          max-height: 380px;
-          object-fit: cover;
-          border-radius: 12px;
-          border: 2px solid var(--accent-pink);
-          box-shadow: 0 0 15px rgba(236, 72, 153, 0.3);
-          transition: opacity 0.4s ease-in-out;
-        }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
       </style>
       <script>
+        // Reload trang nhẹ nếu người dùng không gõ phím
         setInterval(() => { 
           const input = document.getElementById('cmd-input');
           if (!input || document.activeElement !== input) { location.reload(); }
-        }, 5000);
+        }, 6000);
 
-        async function fetchAnimeWaifu() {
+        // NỀN ANIME TỰ ĐỘNG ĐỔI MỖI 1 PHÚT (60000ms)
+        async function rotateAnimeBg() {
           try {
             const res = await fetch('https://api.waifu.pics/sfw/waifu');
             const data = await res.json();
             if (data && data.url) {
-              const imgEl = document.getElementById('anime-waifu-img');
-              if (imgEl) {
-                imgEl.style.opacity = '0.2';
-                setTimeout(() => {
-                  imgEl.src = data.url;
-                  imgEl.style.opacity = '1';
-                }, 300);
-              }
+              const img = new Image();
+              img.src = data.url;
+              img.onload = () => {
+                document.body.style.backgroundImage = 'url("' + data.url + '")';
+              };
             }
           } catch (e) {}
         }
-        setInterval(fetchAnimeWaifu, 12000);
-        window.onload = fetchAnimeWaifu;
+        setInterval(rotateAnimeBg, 60000);
       </script>
     </head>
     <body>
@@ -291,13 +292,13 @@ app.get('/', (req, res) => {
       <div class="container">
         <div>
           <div class="card">
-            <h3>🎮 Trạng Thái & Thao Tác Chính</h3>
+            <h3>🎮 Trạng Thái & Thao Tác Trực Tiếp</h3>
             <p>📶 <b>Ping:</b> <b style="color: var(--accent-cyan);">${currentPing} ms</b> | 📍 <b>Tọa Độ:</b> <code>${currentCoords}</code></p>
             <p>🗡️ <b>Trang Bị:</b> <code>${currentWeapon}</code> | 📦 <b>Nhặt Vật Phẩm:</b> ${collectedCount} lần</p>
             <p>⏱️ <b>Uptime:</b> ${uptimeMinutes} phút | 📊 <b>RAM Heap:</b> ${memoryUsage} MB</p>
 
             <form class="input-group" action="/api/command" method="POST">
-              <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc tin nhắn vào server..." autocomplete="off" required>
+              <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc chat vào server..." autocomplete="off" required>
               <button type="submit">Gửi</button>
             </form>
 
@@ -313,42 +314,33 @@ app.get('/', (req, res) => {
           </div>
 
           <div class="card">
-            <h3>⭐ Nhật Ký Nhắc Tên [Kiru] (Lưu vĩnh viễn)</h3>
+            <h3>⭐ Nhật Ký Nhắc Tên [Kiru]</h3>
             <div class="kiru-box">
               ${kiruMentionLogs.length > 0 
                 ? kiruMentionLogs.map(k => `<div>[${k.time}]${k.text}</div>`).join('') 
-                : '<i>Chưa có tin nhắn hoặc thông báo nào nhắc đến Kiru...</i>'}
-            </div>
-          </div>
-
-          <div class="grid-2">
-            <div class="card">
-              <h3>💬 Chat Server</h3>
-              <div class="chat-box">
-                ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
-              </div>
-            </div>
-
-            <div class="card">
-              <h3>🚨 Nhật Ký Lỗi Phát Sinh</h3>
-              <div class="error-box">
-                ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
-              </div>
+                : '<i>Chưa có tin nhắn nào nhắc đến Kiru...</i>'}
             </div>
           </div>
         </div>
 
         <div>
-          <!-- HIỂN THỊ ẢNH ANIME TỰ ĐỘNG XOAY TUA -->
-          <div class="card anime-card">
-            <h3 style="justify-content: center; color: var(--accent-pink);">💖 Anime Waifu Companion</h3>
-            <img id="anime-waifu-img" class="anime-img" src="https://pic.re/image" alt="Anime Waifu" onerror="this.src='https://pic.re/image'">
-            <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">Tự động đổi ảnh waifu mỗi 12 giây ✨</p>
+          <div class="card">
+            <h3>📊 Lịch Sử Ping</h3>
+            <p><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập...'}</code></p>
           </div>
 
           <div class="card">
-            <h3>📊 Lịch Sử Ping (15 lần gần nhất)</h3>
-            <p><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập dữ liệu...'}</code></p>
+            <h3>💬 Chat Server</h3>
+            <div class="chat-box">
+              ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>🚨 Nhật Ký Lỗi Phát Sinh</h3>
+            <div class="error-box">
+              ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
+            </div>
           </div>
         </div>
       </div>
@@ -367,7 +359,7 @@ function cleanupBot() {
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
 
-  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval, socketHeartbeatInterval];
+  const intervals = [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval];
   intervals.forEach(i => i && clearInterval(i));
 
   const timeouts = [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer];
@@ -408,20 +400,11 @@ function scheduleNextAction() {
   const currentBot = bot;
 
   try {
-    const actionType = Math.floor(Math.random() * 4);
+    const actionType = Math.floor(Math.random() * 3);
 
     if (actionType === 0) {
       currentBot.swingArm('right');
     } else if (actionType === 1) {
-      const target = currentBot.nearestEntity(e => 
-        (e.type === 'mob' || e.type === 'hostile' || e.type === 'animal' || e.type === 'player') &&
-        e.position && currentBot.entity && currentBot.entity.position &&
-        e.id !== currentBot.entity.id &&
-        e.position.distanceTo(currentBot.entity.position) <= 3.5
-      );
-      if (target) currentBot.attack(target);
-      else currentBot.swingArm('right');
-    } else if (actionType === 2) {
       currentBot.setControlState('sneak', true);
       setTimeout(() => {
         if (bot === currentBot && bot.entity) bot.setControlState('sneak', false);
@@ -429,13 +412,13 @@ function scheduleNextAction() {
     } else {
       try { currentBot.activateItem(); } catch (err) {}
     }
-
   } catch (err) {}
 
-  const randomDelay = Math.floor(4500 + Math.random() * 4500);
+  const randomDelay = Math.floor(5000 + Math.random() * 5000);
   actionTimeout = setTimeout(scheduleNextAction, randomDelay);
 }
 
+// Xoay góc nhìn an toàn chuẩn API Mineflayer
 function scheduleRandomRotation() {
   if (antiAfkTimeout) clearTimeout(antiAfkTimeout);
 
@@ -444,11 +427,11 @@ function scheduleRandomRotation() {
   const nextRotationDelay = Math.floor(15000 + Math.random() * 20000);
 
   antiAfkTimeout = setTimeout(() => {
-    if (bot && bot.entity) {
+    if (bot && bot.entity && bot.health > 0 && bot._client && bot._client.state === 'play') {
       try {
-        const deltaYaw = (Math.random() - 0.5) * 0.4;
-        const deltaPitch = (Math.random() - 0.5) * 0.15;
-        bot.look(bot.entity.yaw + deltaYaw, bot.entity.pitch + deltaPitch, false);
+        const deltaYaw = (Math.random() - 0.5) * 0.3;
+        const deltaPitch = (Math.random() - 0.5) * 0.1;
+        bot.look(bot.entity.yaw + deltaYaw, bot.entity.pitch + deltaPitch, true);
       } catch (e) {}
     }
     scheduleRandomRotation();
@@ -463,27 +446,16 @@ function createBot() {
   lastTimeAge = 0;
   lastTimeAgeUpdate = Date.now();
 
-  console.log(`\n[HỆ THỐNG] Đang kết nối đến ${OPTIONS.host}:${OPTIONS.port}...`);
+  console.log(`\n[HỆ THỐNG] Kết nối đến ${OPTIONS.host}:${OPTIONS.port}...`);
 
   try {
     bot = mineflayer.createBot(OPTIONS);
     bot.setMaxListeners(0);
 
-    bot._client.on('packet', (data, meta) => {
-      if (
-        meta.name === 'world_particles' || 
-        meta.name === 'named_sound_effect' || 
-        meta.name === 'sound_effect' ||
-        meta.name === 'entity_velocity'
-      ) {
-        return;
-      }
-    });
-
     if (bot._client) {
       bot._client.setMaxListeners(0);
       bot._client.on('error', (err) => {
-        addErrorLog('Client Socket Error', err.message || err.code || 'Unknown TCP error');
+        addErrorLog('Client Socket Error', err.message || err.code || 'Lỗi TCP Socket');
       });
     }
   } catch (err) {
@@ -493,27 +465,11 @@ function createBot() {
   }
 
   bot.on('spawn', () => {
-    console.log('[LOG] ✅ Bot đã vào server!');
+    console.log('[LOG] ✅ Bot đã vào game!');
     addChatLog('✅ Kết nối ổn định thành công!');
     triggerChatWindow(12000);
 
     consecutiveFailures = 0;
-
-    try {
-      if (bot._client) {
-        bot._client.write('custom_payload', {
-          channel: 'minecraft:brand',
-          data: Buffer.from('\x07vanilla')
-        });
-      }
-    } catch (e) {}
-
-    if (bot._client && bot._client.socket) {
-      try {
-        bot._client.socket.setNoDelay(true);
-        bot._client.socket.setKeepAlive(true, 3000); 
-      } catch (e) {}
-    }
 
     if (isFirstSpawn) {
       isFirstSpawn = false;
@@ -533,21 +489,6 @@ function createBot() {
           scheduleRandomRotation();
         }
       }, 7000);
-
-      // KHẮC PHỤC TRIỆT ĐỂ LỖI SERIALIZATION _value undefined
-      socketHeartbeatInterval = setInterval(() => {
-        if (!isManualStopped && bot && bot._client && !bot._client.socket.destroyed) {
-          try {
-            if (bot.entity && typeof bot.entity.yaw === 'number' && typeof bot.entity.pitch === 'number') {
-              bot._client.write('look', {
-                yaw: bot.entity.yaw,
-                pitch: bot.entity.pitch,
-                onGround: Boolean(bot.entity.onGround)
-              });
-            }
-          } catch (e) {}
-        }
-      }, 3000);
 
       ramGcInterval = setInterval(() => {
         if (bot && bot.entities && bot.entity && bot.entity.position) {
@@ -583,14 +524,14 @@ function createBot() {
       watchdogInterval = setInterval(() => {
         if (!bot || isManualStopped) return;
 
-        if (!isAutoActionRunning || Date.now() - lastActionTime > 15000) {
+        if (!isAutoActionRunning || Date.now() - lastActionTime > 20000) {
           scheduleNextAction();
         }
 
         if (bot.time) {
           if (bot.time.age === lastTimeAge) {
             if (Date.now() - lastTimeAgeUpdate > 45000) {
-              addErrorLog('Watchdog', 'Kẹt Packet thế giới quá 45s. Đang tiến hành Reconnect...');
+              addErrorLog('Watchdog', 'Kẹt Packet thế giới > 45s. Tiến hành Reconnect...');
               handleReconnect();
             }
           } else {
@@ -603,8 +544,8 @@ function createBot() {
   });
 
   bot.on('death', () => {
-    addChatLog('💀 Bot tử vong! Chờ hồi sinh sau 4s...');
-    addErrorLog('Event Chết', 'Bot bị quái hoặc người chơi đánh tử vong');
+    addChatLog('💀 Bot tử vong! Chờ hồi sinh...');
+    addErrorLog('Event Chết', 'Bot tử vong');
 
     respawnTimer = setTimeout(() => {
       if (bot && bot._client && !isManualStopped) {
@@ -614,7 +555,7 @@ function createBot() {
       setTimeout(() => {
         if (bot && bot._client && !isManualStopped) {
           bot.chat('/afkmode vao');
-          addChatLog('⌨️ Đã hồi sinh -> /afkmode vao');
+          addChatLog('⌨️ Hồi sinh -> /afkmode vao');
           triggerChatWindow(5000);
           scheduleNextAction();
           scheduleRandomRotation();
@@ -661,7 +602,7 @@ function createBot() {
   });
 
   bot.on('end', (reason) => {
-    addErrorLog('Mất Kết Nối (End)', `Đường truyền bị ngắt: ${reason}`);
+    addErrorLog('Mất Kết Nối (End)', `Server ngắt socket: ${reason}`);
     handleReconnect();
   });
 
@@ -670,7 +611,13 @@ function createBot() {
   });
 
   bot.on('kicked', (reason) => {
-    addErrorLog('Bị Server Kick', typeof reason === 'string' ? reason : JSON.stringify(reason));
+    const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
+    addErrorLog('Bị Server Kick', reasonStr);
+    
+    // Nếu server báo lưu dữ liệu, tăng delay chờ server lưu xong
+    if (reasonStr.includes('LƯU DỮ LIỆU') || reasonStr.includes('lưu dữ liệu')) {
+      currentReconnectDelay = 15000;
+    }
     handleReconnect();
   });
 }
@@ -683,18 +630,14 @@ function handleReconnect() {
   consecutiveFailures++;
 
   if (consecutiveFailures >= 10) {
-    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Khởi động lại toàn bộ tiến trình...');
+    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Khởi động lại App...');
     setTimeout(() => {
       process.exit(1);
     }, 3000);
     return;
   }
 
-  if (currentReconnectDelay < 30000) {
-    currentReconnectDelay = 30000;
-  }
-
-  console.log(`⏳ Đang chờ ${currentReconnectDelay / 1000}s để tái kết nối...`);
+  console.log(`⏳ Chờ ${currentReconnectDelay / 1000}s để tái kết nối...`);
   
   reconnectTimeout = setTimeout(() => {
     isReconnecting = false;
