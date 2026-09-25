@@ -80,7 +80,6 @@ function getVNTime() {
   return new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 }
 
-// CẬP NHẬT: Tăng sức chứa Chat Log lên 50 dòng để xem liên tục 24/24
 function addChatLog(msg) {
   serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
   if (serverChatLogs.length > 50) serverChatLogs.pop();
@@ -171,7 +170,7 @@ app.post('/api/command', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE
+// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE (BẬT DÙNG 1 LẦN, TẮT DÙNG 1 LẦN)
 app.get('/api/toggle/:feature', (req, res) => {
   const feat = req.params.feature;
   if (toggles.hasOwnProperty(feat)) {
@@ -179,16 +178,16 @@ app.get('/api/toggle/:feature', (req, res) => {
     addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
 
     if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
-      if (toggles[feat]) {
-        if (feat === 'afkmode') safeChat('/afkmode vao');
-        if (feat === 'thien') safeChat('/thien');
-        if (feat === 'quylai') safeChat('/quylai');
-        if (feat === 'dinhthan') safeChat('/dinhthan');
-        if (feat === 'quanghao') safeChat('/quanghao');
-        if (feat === 'skill1') safeChat('/kinang_1');
-        if (feat === 'skill2') safeChat('/kinang_2');
-        if (feat === 'skill3') safeChat('/kinang_3');
-      }
+      // BẬT / TẮT ĐỀU SẼ GỬI LỆNH 1 LẦN
+      if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
+      if (feat === 'thien') safeChat('/thien');
+      if (feat === 'quylai') safeChat('/quylai');
+      if (feat === 'dinhthan') safeChat('/dinhthan');
+      if (feat === 'quanghao') safeChat('/quanghao');
+      if (feat === 'skill1') safeChat('/kinang_1');
+      if (feat === 'skill2') safeChat('/kinang_2');
+      if (feat === 'skill3') safeChat('/kinang_3');
+
       restartLoops();
     }
   }
@@ -216,6 +215,15 @@ app.get('/api/inventory', (req, res) => {
   if (bot && bot._client && !isManualStopped) {
     bot.chat('[inv]');
     addChatLog('[WEB-ADMIN]: [inv]');
+    triggerChatWindow(4000);
+  }
+  res.redirect('/');
+});
+
+// ENDPOINT LỆNH NHANH TỰ SÁT [/tusat]
+app.get('/api/tusat', (req, res) => {
+  if (bot && bot._client && !isManualStopped) {
+    safeChat('/tusat');
     triggerChatWindow(4000);
   }
   res.redirect('/');
@@ -550,21 +558,22 @@ app.get('/', (req, res) => {
                 : `<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">TẮT BOT</button></a>`
               }
               <a href="/api/inventory" style="text-decoration: none;"><button type="button" class="btn-purple" style="width: 100%;">Túi Đồ [inv]</button></a>
+              <a href="/api/tusat" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">Tự Sát (/tusat)</button></a>
               <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning" style="width: 100%;">Xóa Lỗi</button></a>
               <a href="/api/clear-mention-log" style="text-decoration: none;"><button type="button" class="btn-warning" style="width: 100%;">Mention (${botMentionLogs.length})</button></a>
               <a href="/api/hard-restart" style="text-decoration: none;" onclick="return confirm('Reset toàn bộ Tiến Trình Code?');"><button type="button" class="btn-stop" style="width: 100%;">Reset App</button></a>
             </div>
           </div>
 
-          <!-- BẬT / TẮT TÍNH NĂNG AUTO -->
+          <!-- BẬT / TẮT TÍNH NĂNG AUTO (NÚT GỌN GÀNG) -->
           <div class="card">
-            <h3>Bật/Tắt Lệnh Tự Động (Lặp Lại Khi Connect)</h3>
+            <h3>Bật / Tắt Lệnh Tự Động</h3>
             <div class="btn-group-responsive">
-              ${renderToggleBtn('afkmode', '/afkmode vao')}
-              ${renderToggleBtn('thien', 'Thiền (/thien)')}
-              ${renderToggleBtn('quylai', 'Quỳ Lạy (/quylai - 47s)')}
-              ${renderToggleBtn('dinhthan', 'Định Thân (/dinhthan)')}
-              ${renderToggleBtn('quanghao', 'Quang Hào (/quanghao)')}
+              ${renderToggleBtn('afkmode', 'AFK Mode')}
+              ${renderToggleBtn('thien', 'Thiền')}
+              ${renderToggleBtn('quylai', 'Quỳ Lạy')}
+              ${renderToggleBtn('dinhthan', 'Định Thân')}
+              ${renderToggleBtn('quanghao', 'Quang Hào')}
             </div>
           </div>
 
@@ -592,11 +601,11 @@ app.get('/', (req, res) => {
 
           <!-- SETTING SKILL -->
           <div class="card">
-            <h3>Khu Vực Skill (Lặp lại 10 giây/lần)</h3>
+            <h3>Khu Vực Skill</h3>
             <div class="btn-group-responsive">
-              ${renderToggleBtn('skill1', 'Kỹ Năng 1 (/kinang_1)')}
-              ${renderToggleBtn('skill2', 'Kỹ Năng 2 (/kinang_2)')}
-              ${renderToggleBtn('skill3', 'Kỹ Năng 3 (/kinang_3)')}
+              ${renderToggleBtn('skill1', 'Kỹ Năng 1')}
+              ${renderToggleBtn('skill2', 'Kỹ Năng 2')}
+              ${renderToggleBtn('skill3', 'Kỹ Năng 3')}
             </div>
           </div>
 
@@ -680,7 +689,7 @@ function restartLoops() {
 
   if (!bot || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
 
-  // 1. Quỳ lạy lặp lại mỗi 47s
+  // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT
   if (toggles.quylai) {
     quylaiInterval = setInterval(() => {
       if (toggles.quylai) safeChat('/quylai');
@@ -705,7 +714,7 @@ function restartLoops() {
     }, attackRightIntervalMs);
   }
 
-  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s
+  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s khi công tắc đang BẬT
   if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
     skillLoopInterval = setInterval(() => {
       if (!isManualStopped) {
@@ -970,7 +979,6 @@ function createBot() {
     }, 4000);
   });
 
-  // --- XỬ LÝ CHAT SERVER 24/24 ---
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
@@ -979,12 +987,10 @@ function createBot() {
       const lowerText = text.toLowerCase();
       const botNameLower = BOT_USERNAME.toLowerCase();
 
-      // Lưu tin nhắn nhắc tên vào bảng Mention riêng
       if (lowerText.includes(botNameLower)) {
         addBotMentionLog(text);
       }
 
-      // Loại bỏ các thanh Actionbar / ProgressBar hồi chiêu spam màn hình
       if (
         text.includes('█') || 
         lowerText.includes('hồi chiêu') || 
@@ -994,7 +1000,6 @@ function createBot() {
         return;
       }
 
-      // LƯU VÀ HIỂN THỊ TOÀN BỘ CHAT SERVER 24/24
       addChatLog(text);
       console.log('[CHAT]: ' + text);
 
