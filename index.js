@@ -80,9 +80,10 @@ function getVNTime() {
   return new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 }
 
+// CẬP NHẬT: Tăng sức chứa Chat Log lên 50 dòng để xem liên tục 24/24
 function addChatLog(msg) {
   serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
-  if (serverChatLogs.length > 25) serverChatLogs.pop();
+  if (serverChatLogs.length > 50) serverChatLogs.pop();
 }
 
 function addErrorLog(type, details) {
@@ -177,7 +178,6 @@ app.get('/api/toggle/:feature', (req, res) => {
     toggles[feat] = !toggles[feat];
     addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
 
-    // Kích hoạt ngay lệnh nếu bot đang chơi
     if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
       if (toggles[feat]) {
         if (feat === 'afkmode') safeChat('/afkmode vao');
@@ -398,7 +398,7 @@ app.get('/', (req, res) => {
           word-break: break-all;
         }
 
-        .chat-box { background: rgba(0, 0, 0, 0.6); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); font-size: 0.85rem; }
+        .chat-box { background: rgba(0, 0, 0, 0.6); padding: 12px; border-radius: 12px; font-family: monospace; height: 320px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); font-size: 0.85rem; }
         .error-box { background: rgba(20, 5, 5, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.3); font-size: 0.85rem; }
         .kiru-box { background: rgba(15, 23, 15, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 200px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); font-size: 0.85rem; }
         
@@ -466,7 +466,7 @@ app.get('/', (req, res) => {
         setInterval(() => { 
           const activeEl = document.activeElement;
           if (!activeEl || activeEl.tagName !== 'INPUT') { location.reload(); }
-        }, 6000);
+        }, 5000);
 
         async function rotateAnimeBg() {
           try {
@@ -602,7 +602,6 @@ app.get('/', (req, res) => {
 
           <!-- FORM DÙNG CHUNG CHO TẤT CẢ CẤU HÌNH -->
           <form action="/api/update-config" method="POST">
-            <!-- KHU VỰC 1: ĐĂNG NHẬP -->
             <div class="card">
               <h3>Đăng Nhập</h3>
               <div class="form-grid">
@@ -620,7 +619,6 @@ app.get('/', (req, res) => {
               </div>
             </div>
 
-            <!-- KHU VỰC 2: IP SERVER & NÚT LƯU CHUNG -->
             <div class="card">
               <h3>IP Server</h3>
               <div>
@@ -647,8 +645,9 @@ app.get('/', (req, res) => {
             <p style="word-break: break-all;"><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập...'}</code></p>
           </div>
 
+          <!-- CHAT SERVER REALTIME 24/24 -->
           <div class="card">
-            <h3>Chat Server</h3>
+            <h3>Chat Server (24/24)</h3>
             <div class="chat-box">
               ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
             </div>
@@ -706,7 +705,7 @@ function restartLoops() {
     }, attackRightIntervalMs);
   }
 
-  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s khi bật
+  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s
   if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
     skillLoopInterval = setInterval(() => {
       if (!isManualStopped) {
@@ -806,13 +805,11 @@ function scheduleRandomRotation() {
   }, nextRotationDelay);
 }
 
-// XỬ LÝ PHÁT LỆNH KHI KẾT NỐI VÀO GAME
 function executeActiveFeaturesOnSpawn() {
   if (!bot || !bot._client || isManualStopped) return;
 
   let delay = 1000;
   
-  // Lần lượt phát các lệnh công tắc đang BẬT
   if (toggles.afkmode) {
     setTimeout(() => safeChat('/afkmode vao'), delay);
     delay += 1200;
@@ -834,7 +831,6 @@ function executeActiveFeaturesOnSpawn() {
     delay += 1200;
   }
 
-  // Khởi động lại các chu kỳ lặp (Quỳ lạy 47s, Click chuột, Skills 10s)
   setTimeout(() => {
     restartLoops();
   }, delay + 500);
@@ -974,6 +970,7 @@ function createBot() {
     }, 4000);
   });
 
+  // --- XỬ LÝ CHAT SERVER 24/24 ---
   bot.on('message', (message) => {
     try {
       const text = message.toString().trim();
@@ -982,10 +979,12 @@ function createBot() {
       const lowerText = text.toLowerCase();
       const botNameLower = BOT_USERNAME.toLowerCase();
 
+      // Lưu tin nhắn nhắc tên vào bảng Mention riêng
       if (lowerText.includes(botNameLower)) {
         addBotMentionLog(text);
       }
 
+      // Loại bỏ các thanh Actionbar / ProgressBar hồi chiêu spam màn hình
       if (
         text.includes('█') || 
         lowerText.includes('hồi chiêu') || 
@@ -995,12 +994,10 @@ function createBot() {
         return;
       }
 
-      const isRelevant = lowerText.includes(botNameLower) || lowerText.includes('bot') || lowerText.includes('login') || lowerText.includes('afk');
+      // LƯU VÀ HIỂN THỊ TOÀN BỘ CHAT SERVER 24/24
+      addChatLog(text);
+      console.log('[CHAT]: ' + text);
 
-      if (isRelevant || isAwaitingResponse) {
-        addChatLog(text);
-        console.log('[CHAT]: ' + text);
-      }
     } catch (e) {}
   });
 
