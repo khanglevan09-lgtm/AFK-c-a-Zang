@@ -119,7 +119,7 @@ function triggerChatWindow(durationMs = 8000) {
 
 // HÀM GỬI CHAT AN TOÀN CHỐNG KẸT
 function safeChat(msg) {
-  if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
+  if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
     try {
       bot.chat(msg);
       addChatLog(`[TỰ ĐỘNG]: ${msg}`);
@@ -170,15 +170,14 @@ app.post('/api/command', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE (BẬT DÙNG 1 LẦN, TẮT DÙNG 1 LẦN)
+// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE
 app.get('/api/toggle/:feature', (req, res) => {
   const feat = req.params.feature;
   if (toggles.hasOwnProperty(feat)) {
     toggles[feat] = !toggles[feat];
     addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
 
-    if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
-      // BẬT / TẮT ĐỀU SẼ GỬI LỆNH 1 LẦN
+    if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
       if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
       if (feat === 'thien') safeChat('/thien');
       if (feat === 'quylai') safeChat('/quylai');
@@ -687,7 +686,8 @@ function stopFeatureLoops() {
 function restartLoops() {
   stopFeatureLoops();
 
-  if (!bot || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
+  // Kiểm tra chặt chẽ xem bot có tồn tại trong game hay không
+  if (!bot || !bot.entity || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
 
   // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT
   if (toggles.quylai) {
@@ -696,19 +696,19 @@ function restartLoops() {
     }, 47000);
   }
 
-  // 2. Click Chuột Trái liên tục
+  // 2. Click Chuột Trái liên tục (CÓ BẢO VỆ CHỐNG CRASH)
   if (toggles.attackLeft) {
     attackLeftInterval = setInterval(() => {
-      if (bot && bot._client && toggles.attackLeft && !isManualStopped) {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
         try { bot.swingArm('right'); } catch (e) {}
       }
     }, attackLeftIntervalMs);
   }
 
-  // 3. Click Chuột Phải liên tục
+  // 3. Click Chuột Phải liên tục (CÓ BẢO VỆ CHỐNG CRASH)
   if (toggles.attackRight) {
     attackRightInterval = setInterval(() => {
-      if (bot && bot._client && toggles.attackRight && !isManualStopped) {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
         try { bot.activateItem(); } catch (e) {}
       }
     }, attackRightIntervalMs);
@@ -717,7 +717,7 @@ function restartLoops() {
   // 4. Lặp lại Skill 1, 2, 3 mỗi 10s khi công tắc đang BẬT
   if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
     skillLoopInterval = setInterval(() => {
-      if (!isManualStopped) {
+      if (bot && bot.entity && bot._client && !isManualStopped) {
         if (toggles.skill1) safeChat('/kinang_1');
         if (toggles.skill2) safeChat('/kinang_2');
         if (toggles.skill3) safeChat('/kinang_3');
@@ -731,7 +731,7 @@ function cleanupBot() {
   currentCoords = 'Đang xác định...';
   currentPing = 0;
 
-  stopFeatureLoops();
+  stopFeatureLoops(); // QUAN TRỌNG: Dừng mọi hành động spam click/skill ngay khi ngắt kết nối
 
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
@@ -745,16 +745,8 @@ function cleanupBot() {
   if (bot) {
     try {
       bot.clearControlStates();
-      bot.removeAllListeners();
-      if (bot._client) {
-        bot._client.removeAllListeners();
-        if (bot._client.socket) {
-          bot._client.socket.removeAllListeners();
-          bot._client.socket.destroy();
-        }
-        bot._client.end();
-      }
-      bot.quit();
+      // Loại bỏ việc xóa listeners can thiệp sâu, để cho bot.end() xử lý
+      bot.end(); 
     } catch (e) {}
     bot = null;
   }
@@ -767,7 +759,7 @@ function cleanupBot() {
 function scheduleNextAction() {
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
 
-  if (isManualStopped || !bot || !bot._client || bot._client.socket.destroyed) {
+  if (isManualStopped || !bot || !bot.entity || !bot._client || bot._client.socket.destroyed) {
     isAutoActionRunning = false;
     return;
   }
@@ -815,7 +807,7 @@ function scheduleRandomRotation() {
 }
 
 function executeActiveFeaturesOnSpawn() {
-  if (!bot || !bot._client || isManualStopped) return;
+  if (!bot || !bot.entity || !bot._client || isManualStopped) return;
 
   let delay = 1000;
   
@@ -900,7 +892,7 @@ function createBot() {
       }, 3500);
 
       loginTimer2 = setTimeout(() => {
-        if (bot && bot._client && !isManualStopped) {
+        if (bot && bot.entity && bot._client && !isManualStopped) {
           executeActiveFeaturesOnSpawn();
           scheduleNextAction();
           scheduleRandomRotation();
@@ -970,7 +962,7 @@ function createBot() {
       }
 
       setTimeout(() => {
-        if (bot && bot._client && !isManualStopped) {
+        if (bot && bot.entity && bot._client && !isManualStopped) {
           executeActiveFeaturesOnSpawn();
           scheduleNextAction();
           scheduleRandomRotation();
@@ -1006,21 +998,26 @@ function createBot() {
     } catch (e) {}
   });
 
+  // Hủy toàn bộ loops ngay khi bị văng
   bot.on('end', (reason) => {
+    stopFeatureLoops();
     addErrorLog('Mất Kết Nối (End)', `Server ngắt socket: ${reason}`);
     handleReconnect();
   });
 
   bot.on('error', (err) => {
+    stopFeatureLoops();
     addErrorLog('Mineflayer Error', err.message || err.toString());
   });
 
   bot.on('kicked', (reason) => {
+    stopFeatureLoops();
     const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
     addErrorLog('Bị Server Kick', reasonStr);
     
-    if (reasonStr.includes('LƯU DỮ LIỆU') || reasonStr.includes('lưu dữ liệu')) {
-      currentReconnectDelay = 15000;
+    if (reasonStr.includes('LƯU DỮ LIỆU') || reasonStr.includes('lưu dữ liệu') || reasonStr.includes('\u003d\u003d')) {
+      // Khi server lưu dữ liệu, tăng thời gian đợi reconnect lên 25s để tránh timeout socket
+      currentReconnectDelay = 25000;
     }
     handleReconnect();
   });
@@ -1034,7 +1031,7 @@ function handleReconnect() {
   consecutiveFailures++;
 
   if (consecutiveFailures >= 10) {
-    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Khởi động lại App...');
+    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối 10 lần. Khởi động lại App...');
     setTimeout(() => {
       process.exit(1);
     }, 3000);
@@ -1045,6 +1042,7 @@ function handleReconnect() {
   
   reconnectTimeout = setTimeout(() => {
     isReconnecting = false;
+    currentReconnectDelay = 12000; // Trả lại delay chuẩn cho lần sau
     createBot();
   }, currentReconnectDelay);
 }
@@ -1053,7 +1051,7 @@ createBot();
 
 process.on('uncaughtException', (err) => {
   addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
-  handleReconnect();
+  try { handleReconnect(); } catch(e) {}
 });
 
 process.on('unhandledRejection', (reason) => {
