@@ -11,9 +11,9 @@ app.use(express.json());
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 // --- CẤU HÌNH DỘNG ---
-let BOT_USERNAME = process.env.BOT_USERNAME || 'Kiru Đẹp Trai';
+let BOT_USERNAME = process.env.BOT_USERNAME || 'Kiru';
 let BOT_PASSWORD = process.env.BOT_PASSWORD || 'YourPasswordHere';
-let BOT_HOST = process.env.BOT_HOST || 'mc.example.com';
+let BOT_HOST = process.env.BOT_HOST || 'vangioinetwork.xyz';
 let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 
 // --- BẬT/TẮT CÁC TÍNH NĂNG TOGGLE ---
