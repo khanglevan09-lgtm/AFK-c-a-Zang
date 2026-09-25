@@ -20,30 +20,20 @@ let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 // === CẤU HÌNH KEY PHÂN QUYỀN TỪNG TÍNH NĂNG VÀ SỐ LƯỢT IP ================
 // =========================================================================
 
-/*
-  HƯỚNG DẪN TẠO KEY BÁN KHÁCH:
-  - key: Mã Key bạn tự đặt (VD: "KEY_QUYLAI_888")
-  - maxUses: Số lượng IP tối đa được phép kích hoạt Key này.
-  - usedIps: Mảng lưu vết các IP đã kích hoạt.
-*/
-
 const KEY_DATABASE = {
-  // 1. Key VIP Mở Full Toàn Bộ Tính Năng + Chat Vô Hạn
   PREMIUM: [
     { key: "KEY_FULL_VIP_999", maxUses: 1, usedIps: [] },
     { key: "KEY_FULL_VIP_888", maxUses: 5, usedIps: [] }
   ],
-
-  // 2. Key Từng Tính Năng Đơn Lẻ
   THIEN: [
     { key: "KEY_THIEN_01", maxUses: 2, usedIps: [] }
   ],
   QUY_LAI: [
-    { key: "KEY_QUYLAI_01", maxUses: 2, usedIps: [] }, // Key Quỳ Lạy (Dùng được tối đa 2 IP khác nhau)
+    { key: "KEY_QUYLAI_01", maxUses: 2, usedIps: [] },
     { key: "KEY_QUYLAI_VIP", maxUses: 5, usedIps: [] }
   ],
   CLICK_MOUSE: [
-    { key: "KEY_CLICK_01", maxUses: 1, usedIps: [] } // Bật Đánh Trái & Đánh Phải
+    { key: "KEY_CLICK_01", maxUses: 1, usedIps: [] }
   ],
   QUANG_HAO: [
     { key: "KEY_QUANGHAO_01", maxUses: 1, usedIps: [] }
@@ -57,19 +47,14 @@ const KEY_DATABASE = {
   TUI_DO: [
     { key: "KEY_TUIDO_01", maxUses: 1, usedIps: [] }
   ],
-
-  // 3. Key Kỹ Năng Độc Lập
   SKILL_1: [ { key: "KEY_SKILL1_01", maxUses: 1, usedIps: [] } ],
   SKILL_2: [ { key: "KEY_SKILL2_01", maxUses: 1, usedIps: [] } ],
   SKILL_3: [ { key: "KEY_SKILL3_01", maxUses: 1, usedIps: [] } ],
-
-  // 4. Key Chat Vô Hạn (Mặc định khi chưa kích hoạt chỉ chat được 5 lần)
   CHAT_UNLIMITED: [
     { key: "KEY_CHAT_VIP_01", maxUses: 1, usedIps: [] }
   ]
 };
 
-// LƯU TRỮ QUYỀN HẠN CỦA TỪNG IP TRUY CẬP
 const ipPermissions = {};
 
 function getIpData(userIp) {
@@ -86,11 +71,9 @@ function getIpData(userIp) {
 
 function activateKeyForIp(userIp, inputKey) {
   const ipData = getIpData(userIp);
-
   let foundCategory = null;
   let keyObj = null;
 
-  // Quét tìm Key trong Database
   for (const [catName, list] of Object.entries(KEY_DATABASE)) {
     const match = list.find(k => k.key === inputKey);
     if (match) {
@@ -106,7 +89,6 @@ function activateKeyForIp(userIp, inputKey) {
 
   const alreadyUsedByThisIp = keyObj.usedIps.includes(userIp);
 
-  // Nếu IP mới dùng mà Key đã chạm trần số lượt IP
   if (!alreadyUsedByThisIp && keyObj.usedIps.length >= keyObj.maxUses) {
     return { 
       success: false, 
@@ -114,17 +96,14 @@ function activateKeyForIp(userIp, inputKey) {
     };
   }
 
-  // Lưu vết IP nếu chưa có
   if (!alreadyUsedByThisIp) {
     keyObj.usedIps.push(userIp);
   }
 
-  // Thêm danh sách key đã kích hoạt thành công trên IP này
   if (!ipData.activatedKeys.includes(inputKey)) {
     ipData.activatedKeys.push(inputKey);
   }
 
-  // Mở khóa tính năng
   if (foundCategory === 'PREMIUM') {
     Object.keys(KEY_DATABASE).forEach(cat => {
       ipData.features[cat.toLowerCase()] = true;
@@ -152,7 +131,7 @@ let toggleQuangHao = false;
 let toggleLeftClick = false;
 let toggleRightClick = false;
 
-let clickSpeed = 0.5; // Tốc độ click mặc định (giây)
+let clickSpeed = 0.5;
 
 let toggleSkill1 = false;
 let toggleSkill2 = false;
@@ -311,7 +290,9 @@ app.post('/api/activate-key', (req, res) => {
   return res.send(`<script>alert('${result.message.replace(/'/g, "\\'")}'); window.location.href='/';</script>`);
 });
 
-// ENDPOINT BẬT/TẮT PHÂN QUYỀN NÚT BẤM
+// =========================================================================
+// === ROUTE BỔ SUNG: BẬT/TẮT TÍNH NĂNG TỪ CÁC NÚT BẤM DƯỚI WEB DASHBOARD ==
+// =========================================================================
 app.post('/api/toggle-feature', (req, res) => {
   const userIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const ipData = getIpData(userIp);
@@ -333,11 +314,12 @@ app.post('/api/toggle-feature', (req, res) => {
 
   const reqGroup = featureMap[feature];
 
-  // Kiểm tra nếu IP chưa mở khóa tính năng này
+  // Kiểm tra phân quyền theo IP
   if (reqGroup && !ipData.features[reqGroup] && !ipData.features['premium']) {
     return res.send(`<script>alert('Bạn chưa kích hoạt Key cho tính năng này!'); window.location.href='/';</script>`);
   }
 
+  // Cập nhật tốc độ click chuột nếu có
   if (speed !== undefined) {
     let parsedSpeed = parseFloat(speed);
     if (!isNaN(parsedSpeed)) {
@@ -346,24 +328,57 @@ app.post('/api/toggle-feature', (req, res) => {
     }
   }
 
-  if (feature === 'afk') { toggleAfk = !toggleAfk; if (toggleAfk && bot && bot._client) bot.chat('/afkmode vao'); }
-  if (feature === 'thien') { toggleThien = !toggleThien; if (toggleThien && bot && bot._client) bot.chat('/thien'); }
-  if (feature === 'quylai') { toggleQuyLai = !toggleQuyLai; startQuyLaiLoop(); }
-  if (feature === 'dinhthan') { toggleDinhThan = !toggleDinhThan; if (toggleDinhThan && bot && bot._client) bot.chat('/dinhthan'); }
-  if (feature === 'quanghao') { toggleQuangHao = !toggleQuangHao; if (toggleQuangHao && bot && bot._client) bot.chat('/quanghao'); }
-  if (feature === 'inventory') { if (bot && bot._client) bot.chat('[inv]'); }
+  // Xử lý logic bật/tắt từng tính năng
+  if (feature === 'afk') { 
+    toggleAfk = !toggleAfk; 
+    if (toggleAfk && bot && bot._client) bot.chat('/afkmode vao'); 
+  }
+  if (feature === 'thien') { 
+    toggleThien = !toggleThien; 
+    if (toggleThien && bot && bot._client) bot.chat('/thien'); 
+  }
+  if (feature === 'quylai') { 
+    toggleQuyLai = !toggleQuyLai; 
+    startQuyLaiLoop(); 
+  }
+  if (feature === 'dinhthan') { 
+    toggleDinhThan = !toggleDinhThan; 
+    if (toggleDinhThan && bot && bot._client) bot.chat('/dinhthan'); 
+  }
+  if (feature === 'quanghao') { 
+    toggleQuangHao = !toggleQuangHao; 
+    if (toggleQuangHao && bot && bot._client) bot.chat('/quanghao'); 
+  }
+  if (feature === 'inventory') { 
+    if (bot && bot._client) bot.chat('[inv]'); 
+  }
 
-  if (feature === 'leftclick') { toggleLeftClick = !toggleLeftClick; startClickLoop(); }
-  if (feature === 'rightclick') { toggleRightClick = !toggleRightClick; startClickLoop(); }
+  if (feature === 'leftclick') { 
+    toggleLeftClick = !toggleLeftClick; 
+    startClickLoop(); 
+  }
+  if (feature === 'rightclick') { 
+    toggleRightClick = !toggleRightClick; 
+    startClickLoop(); 
+  }
 
-  if (feature === 'skill1') { toggleSkill1 = !toggleSkill1; startSkillLoop(); }
-  if (feature === 'skill2') { toggleSkill2 = !toggleSkill2; startSkillLoop(); }
-  if (feature === 'skill3') { toggleSkill3 = !toggleSkill3; startSkillLoop(); }
+  if (feature === 'skill1') { 
+    toggleSkill1 = !toggleSkill1; 
+    startSkillLoop(); 
+  }
+  if (feature === 'skill2') { 
+    toggleSkill2 = !toggleSkill2; 
+    startSkillLoop(); 
+  }
+  if (feature === 'skill3') { 
+    toggleSkill3 = !toggleSkill3; 
+    startSkillLoop(); 
+  }
 
   res.redirect('/');
 });
 
-// ENDPOINT GỬI LỆNH CHAT VỚI GIỚI HẠN 5 LẦN THỬ
+// ENDPOINT GỬI LỆNH CHAT
 app.post('/api/command', (req, res) => {
   const userIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const ipData = getIpData(userIp);
