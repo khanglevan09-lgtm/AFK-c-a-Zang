@@ -11,9 +11,9 @@ app.use(express.json());
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 // --- CẤU HÌNH DỘNG ---
-let BOT_USERNAME = process.env.BOT_USERNAME || 'Kiru';
+let BOT_USERNAME = process.env.BOT_USERNAME || 'Kiru Đẹp Trai';
 let BOT_PASSWORD = process.env.BOT_PASSWORD || 'YourPasswordHere';
-let BOT_HOST = process.env.BOT_HOST || 'vangioinetwork.xyz';
+let BOT_HOST = process.env.BOT_HOST || 'mc.example.com';
 let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 
 // --- BẬT/TẮT CÁC TÍNH NĂNG TOGGLE ---
@@ -55,7 +55,7 @@ let loginTimer2 = null;
 let respawnTimer = null;
 let commandResponseTimer = null;
 
-// TIMERS CỦA TÍNH NĂNG MỚI
+// TIMERS DÀNH CHO CÁC TÍNH NĂNG ĐỊNH KỲ
 let quylaiInterval = null;
 let attackLeftInterval = null;
 let attackRightInterval = null;
@@ -117,6 +117,18 @@ function triggerChatWindow(durationMs = 8000) {
   }, durationMs);
 }
 
+// HÀM GỬI CHAT AN TOÀN CHỐNG KẸT
+function safeChat(msg) {
+  if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
+    try {
+      bot.chat(msg);
+      addChatLog(`[TỰ ĐỘNG]: ${msg}`);
+    } catch (e) {
+      addErrorLog('Lỗi Chat', e.message);
+    }
+  }
+}
+
 app.get('/api/ping', (req, res) => res.send('PONG_OK'));
 
 // ENDPOINT CẬP NHẬT CẤU HÌNH TỰ ĐỘNG
@@ -158,20 +170,25 @@ app.post('/api/command', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG
+// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE
 app.get('/api/toggle/:feature', (req, res) => {
   const feat = req.params.feature;
   if (toggles.hasOwnProperty(feat)) {
     toggles[feat] = !toggles[feat];
-    
-    // Nếu bot đang online thì áp dụng ngay trạng thái mới
+    addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
+
+    // Kích hoạt ngay lệnh nếu bot đang chơi
     if (bot && bot._client && bot._client.state === 'play' && !isManualStopped) {
-      if (feat === 'afkmode' && toggles.afkmode) bot.chat('/afkmode vao');
-      if (feat === 'thien' && toggles.thien) bot.chat('/thien');
-      if (feat === 'quylai' && toggles.quylai) bot.chat('/quylai');
-      if (feat === 'dinhthan' && toggles.dinhthan) bot.chat('/dinhthan');
-      if (feat === 'quanghao' && toggles.quanghao) bot.chat('/quanghao');
-      
+      if (toggles[feat]) {
+        if (feat === 'afkmode') safeChat('/afkmode vao');
+        if (feat === 'thien') safeChat('/thien');
+        if (feat === 'quylai') safeChat('/quylai');
+        if (feat === 'dinhthan') safeChat('/dinhthan');
+        if (feat === 'quanghao') safeChat('/quanghao');
+        if (feat === 'skill1') safeChat('/kinang_1');
+        if (feat === 'skill2') safeChat('/kinang_2');
+        if (feat === 'skill3') safeChat('/kinang_3');
+      }
       restartLoops();
     }
   }
@@ -190,13 +207,11 @@ app.post('/api/update-click-speed', (req, res) => {
     attackRightIntervalMs = Math.round(rightSpeed * 1000);
   }
 
-  if (bot && bot._client && !isManualStopped) {
-    restartLoops();
-  }
+  restartLoops();
   res.redirect('/');
 });
 
-// ENDPOINT LỆNH NHAHN [INV]
+// ENDPOINT LỆNH NHANH [INV]
 app.get('/api/inventory', (req, res) => {
   if (bot && bot._client && !isManualStopped) {
     bot.chat('[inv]');
@@ -541,9 +556,9 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
-          <!-- MỚI: BẬT / TẮT TÍNH NĂNG & LỆNH AUTO -->
+          <!-- BẬT / TẮT TÍNH NĂNG AUTO -->
           <div class="card">
-            <h3>Cấu Hình Tính Năng & Lệnh Auto</h3>
+            <h3>Bật/Tắt Lệnh Tự Động (Lặp Lại Khi Connect)</h3>
             <div class="btn-group-responsive">
               ${renderToggleBtn('afkmode', '/afkmode vao')}
               ${renderToggleBtn('thien', 'Thiền (/thien)')}
@@ -553,7 +568,7 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
-          <!-- MỚI: ĐÁNH TRÁI / ĐÁNH PHẢI -->
+          <!-- ĐÁNH TRÁI / ĐÁNH PHẢI -->
           <div class="card">
             <h3>Đánh Liên Tục (Click Mouse)</h3>
             <div class="btn-group-responsive" style="margin-bottom: 12px;">
@@ -575,13 +590,13 @@ app.get('/', (req, res) => {
             </form>
           </div>
 
-          <!-- MỚI: SETTING SKILL -->
+          <!-- SETTING SKILL -->
           <div class="card">
-            <h3>Setting Skill (Lặp lại 10 giây/lần)</h3>
+            <h3>Khu Vực Skill (Lặp lại 10 giây/lần)</h3>
             <div class="btn-group-responsive">
-              ${renderToggleBtn('skill1', 'Kỹ Năng 1')}
-              ${renderToggleBtn('skill2', 'Kỹ Năng 2')}
-              ${renderToggleBtn('skill3', 'Kỹ Năng 3')}
+              ${renderToggleBtn('skill1', 'Kỹ Năng 1 (/kinang_1)')}
+              ${renderToggleBtn('skill2', 'Kỹ Năng 2 (/kinang_2)')}
+              ${renderToggleBtn('skill3', 'Kỹ Năng 3 (/kinang_3)')}
             </div>
           </div>
 
@@ -664,18 +679,16 @@ function stopFeatureLoops() {
 function restartLoops() {
   stopFeatureLoops();
 
-  if (!bot || !bot._client || isManualStopped) return;
+  if (!bot || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
 
-  // Lặp lại Lệnh Quỳ Lạy mỗi 47s khi bật
+  // 1. Quỳ lạy lặp lại mỗi 47s
   if (toggles.quylai) {
     quylaiInterval = setInterval(() => {
-      if (bot && bot._client && toggles.quylai && !isManualStopped) {
-        bot.chat('/quylai');
-      }
+      if (toggles.quylai) safeChat('/quylai');
     }, 47000);
   }
 
-  // Lặp lại Click Chuột Trái liên tục
+  // 2. Click Chuột Trái liên tục
   if (toggles.attackLeft) {
     attackLeftInterval = setInterval(() => {
       if (bot && bot._client && toggles.attackLeft && !isManualStopped) {
@@ -684,7 +697,7 @@ function restartLoops() {
     }, attackLeftIntervalMs);
   }
 
-  // Lặp lại Click Chuột Phải liên tục
+  // 3. Click Chuột Phải liên tục
   if (toggles.attackRight) {
     attackRightInterval = setInterval(() => {
       if (bot && bot._client && toggles.attackRight && !isManualStopped) {
@@ -693,13 +706,13 @@ function restartLoops() {
     }, attackRightIntervalMs);
   }
 
-  // Lặp lại Skill 1, 2, 3 mỗi 10s khi bật
+  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s khi bật
   if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
     skillLoopInterval = setInterval(() => {
-      if (bot && bot._client && !isManualStopped) {
-        if (toggles.skill1) bot.chat('kinang_1');
-        if (toggles.skill2) bot.chat('kinang_2');
-        if (toggles.skill3) bot.chat('kinang_3');
+      if (!isManualStopped) {
+        if (toggles.skill1) safeChat('/kinang_1');
+        if (toggles.skill2) safeChat('/kinang_2');
+        if (toggles.skill3) safeChat('/kinang_3');
       }
     }, 10000);
   }
@@ -793,35 +806,35 @@ function scheduleRandomRotation() {
   }, nextRotationDelay);
 }
 
-// XỬ LÝ PHÁT LỆNH KHI KẾT NỐI VÀO GAME (SPAWN/RECONNECT)
+// XỬ LÝ PHÁT LỆNH KHI KẾT NỐI VÀO GAME
 function executeActiveFeaturesOnSpawn() {
   if (!bot || !bot._client || isManualStopped) return;
 
   let delay = 1000;
   
-  // Phát lần lượt các lệnh được bật để tránh spam chat quá nhanh
+  // Lần lượt phát các lệnh công tắc đang BẬT
   if (toggles.afkmode) {
-    setTimeout(() => bot && bot.chat('/afkmode vao'), delay);
+    setTimeout(() => safeChat('/afkmode vao'), delay);
     delay += 1200;
   }
   if (toggles.thien) {
-    setTimeout(() => bot && bot.chat('/thien'), delay);
+    setTimeout(() => safeChat('/thien'), delay);
     delay += 1200;
   }
   if (toggles.quylai) {
-    setTimeout(() => bot && bot.chat('/quylai'), delay);
+    setTimeout(() => safeChat('/quylai'), delay);
     delay += 1200;
   }
   if (toggles.dinhthan) {
-    setTimeout(() => bot && bot.chat('/dinhthan'), delay);
+    setTimeout(() => safeChat('/dinhthan'), delay);
     delay += 1200;
   }
   if (toggles.quanghao) {
-    setTimeout(() => bot && bot.chat('/quanghao'), delay);
+    setTimeout(() => safeChat('/quanghao'), delay);
     delay += 1200;
   }
 
-  // Khởi động lại toàn bộ các vòng lặp định kỳ (quỳ lạy 47s, click chuột, skills 10s)
+  // Khởi động lại các chu kỳ lặp (Quỳ lạy 47s, Click chuột, Skills 10s)
   setTimeout(() => {
     restartLoops();
   }, delay + 500);
@@ -883,9 +896,7 @@ function createBot() {
 
       loginTimer2 = setTimeout(() => {
         if (bot && bot._client && !isManualStopped) {
-          // Thực thi tất cả tính năng đang BẬT
           executeActiveFeaturesOnSpawn();
-
           scheduleNextAction();
           scheduleRandomRotation();
         }
