@@ -736,28 +736,31 @@ app.get('/', (req, res) => {
       </style>
 
       <script>
-        // KHO ÁNH DỰ PHÒNG CHUẨN ANIME GÁI XINH - KHUNG NGANG 100% SẮC NÉT (LANDSCAPE)
+        // KHO ÁNH DỰ PHÒNG ANIME CHẤT LƯỢNG CAO
         const CURATED_LANDSCAPE_BGS = [
+          'https://images.alphacoders.com/131/1318460.jpeg',
+          'https://images7.alphacoders.com/132/1325357.jpeg',
+          'https://images4.alphacoders.com/134/1344238.png',
+          'https://images5.alphacoders.com/133/1336044.png',
+          'https://images8.alphacoders.com/134/1340058.png',
           'https://cdn.waifu.im/7438.jpg',
           'https://cdn.waifu.im/6226.jpg',
           'https://cdn.waifu.im/7140.jpg',
           'https://cdn.waifu.im/7290.jpg',
-          'https://cdn.waifu.im/7086.png',
           'https://cdn.waifu.im/6831.jpg',
           'https://cdn.waifu.im/7580.jpg',
-          'https://cdn.waifu.im/7311.png',
           'https://cdn.waifu.im/7418.jpg',
           'https://cdn.waifu.im/7212.jpg',
           'https://cdn.waifu.im/7211.jpg',
-          'https://cdn.waifu.im/7010.jpg',
-          'https://cdn.waifu.im/8020.jpg',
-          'https://cdn.waifu.im/8145.jpg',
-          'https://cdn.waifu.im/8290.jpg'
+          'https://picsum.photos/1920/1080'
         ];
 
         let currentFallbackIndex = Math.floor(Math.random() * CURATED_LANDSCAPE_BGS.length);
+        let nextPreloadedUrl = null;
+        let isPrefetching = false;
+        let isRotating = false;
 
-        function testAndPreloadLandscapeImage(url, timeoutMs = 3500) {
+        function testAndPreloadLandscapeImage(url, timeoutMs = 2500) {
           return new Promise((resolve, reject) => {
             const img = new Image();
             img.referrerPolicy = 'no-referrer';
@@ -769,11 +772,7 @@ app.get('/', (req, res) => {
 
             img.onload = () => {
               clearTimeout(timer);
-              if (img.naturalWidth >= img.naturalHeight) {
-                resolve(url);
-              } else {
-                reject(new Error('Not landscape'));
-              }
+              resolve(url);
             };
 
             img.onerror = () => {
@@ -781,8 +780,73 @@ app.get('/', (req, res) => {
               reject(new Error('Failed to load'));
             };
 
-            img.src = url;
+            if (url && !url.startsWith('data:')) {
+              const sep = url.includes('?') ? '&' : '?';
+              img.src = url + sep + '_t=' + Date.now();
+            } else if (url) {
+              img.src = url;
+            } else {
+              clearTimeout(timer);
+              reject(new Error('Invalid URL'));
+            }
           });
+        }
+
+        async function fetchNewImageCandidate() {
+          const apiProviders = [
+            'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=uniform&orientation=LANDSCAPE',
+            'https://nekos.best/api/v2/waifu',
+            'https://api.waifu.pics/sfw/waifu'
+          ];
+
+          const selectedApi = apiProviders[Math.floor(Math.random() * apiProviders.length)];
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+            const response = await fetch(selectedApi, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+              const data = await response.json();
+              let candidateUrl = '';
+              if (data && data.images && data.images[0] && data.images[0].url) {
+                candidateUrl = data.images[0].url;
+              } else if (data && data.results && data.results[0] && data.results[0].url) {
+                candidateUrl = data.results[0].url;
+              } else if (data && data.url) {
+                candidateUrl = data.url;
+              }
+
+              if (candidateUrl) {
+                const verified = await testAndPreloadLandscapeImage(candidateUrl, 2500);
+                return verified;
+              }
+            }
+          } catch (e) {}
+
+          // Quay vòng kho ảnh dự phòng mượt mà nếu API mạng lỗi/chậm
+          currentFallbackIndex = (currentFallbackIndex + 1) % CURATED_LANDSCAPE_BGS.length;
+          const fallbackUrl = CURATED_LANDSCAPE_BGS[currentFallbackIndex];
+          try {
+            return await testAndPreloadLandscapeImage(fallbackUrl, 2000);
+          } catch(e) {
+            return fallbackUrl + (fallbackUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+          }
+        }
+
+        async function prefetchNextImage() {
+          if (isPrefetching) return;
+          isPrefetching = true;
+          try {
+            nextPreloadedUrl = await fetchNewImageCandidate();
+          } catch (e) {
+            nextPreloadedUrl = null;
+          } finally {
+            isPrefetching = false;
+          }
         }
 
         function applyVerifiedImage(url) {
@@ -798,73 +862,36 @@ app.get('/', (req, res) => {
         }
 
         async function rotateAnimeBg(isManual = false) {
+          if (isRotating) return;
+          isRotating = true;
+
           const btnHeader = document.getElementById('btn-rotate-bg');
           const btnFab = document.getElementById('fab-rotate-bg');
 
-          if (btnHeader) btnHeader.innerHTML = '⏳ Đang tìm ảnh...';
-          if (btnFab) btnFab.innerHTML = '⏳ Đang tải...';
+          if (btnHeader) btnHeader.innerHTML = '⚡ Đang đổi ảnh...';
+          if (btnFab) btnFab.innerHTML = '⚡ Đang đổi...';
 
-          const apiProviders = [
-            'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=uniform&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
-            'https://nekos.best/api/v2/waifu',
-            'https://api.waifu.pics/sfw/waifu'
-          ];
+          let targetUrl = null;
 
-          let isSuccess = false;
-          let attempts = 0;
-
-          while (attempts < 5 && !isSuccess) {
-            attempts++;
-            const selectedApi = apiProviders[Math.floor(Math.random() * apiProviders.length)];
-            
-            try {
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-              const response = await fetch(selectedApi, { signal: controller.signal });
-              clearTimeout(timeoutId);
-
-              if (!response.ok) continue;
-              const data = await response.json();
-
-              let candidateUrl = '';
-              if (data && data.images && data.images[0] && data.images[0].url) {
-                candidateUrl = data.images[0].url;
-              } else if (data && data.results && data.results[0] && data.results[0].url) {
-                candidateUrl = data.results[0].url;
-              } else if (data && data.url) {
-                candidateUrl = data.url;
-              }
-
-              if (candidateUrl) {
-                const verifiedUrl = await testAndPreloadLandscapeImage(candidateUrl, 3000);
-                applyVerifiedImage(verifiedUrl);
-                isSuccess = true;
-                break;
-              }
-            } catch (err) {}
+          // Sử dụng ngay ảnh đã tải sẵn ngầm nếu có
+          if (nextPreloadedUrl) {
+            targetUrl = nextPreloadedUrl;
+            nextPreloadedUrl = null;
+          } else {
+            targetUrl = await fetchNewImageCandidate();
           }
 
-          if (!isSuccess) {
-            let fallbackAttempts = 0;
-            while (fallbackAttempts < CURATED_LANDSCAPE_BGS.length) {
-              fallbackAttempts++;
-              currentFallbackIndex = (currentFallbackIndex + 1) % CURATED_LANDSCAPE_BGS.length;
-              const fallbackUrl = CURATED_LANDSCAPE_BGS[currentFallbackIndex];
-              try {
-                const verifiedUrl = await testAndPreloadLandscapeImage(fallbackUrl, 3000);
-                applyVerifiedImage(verifiedUrl);
-                break;
-              } catch (e) {}
-            }
+          if (targetUrl) {
+            applyVerifiedImage(targetUrl);
           }
 
           if (btnHeader) btnHeader.innerHTML = '🔄 Đổi Ảnh Khác';
           if (btnFab) btnFab.innerHTML = '🔄 Đổi Ảnh';
+          
+          isRotating = false;
+
+          // Tiếp tục tải ngầm ảnh tiếp theo cho lần bấm tới
+          prefetchNextImage();
         }
 
         function setCustomBgUrl() {
@@ -952,9 +979,8 @@ app.get('/', (req, res) => {
           const defaultInitialUrl = savedBg || CURATED_LANDSCAPE_BGS[currentFallbackIndex];
           applyVerifiedImage(defaultInitialUrl);
 
-          if (!savedBg) {
-            rotateAnimeBg();
-          }
+          // Tải sẵn ngay 1 ảnh tiếp theo vào bộ nhớ đệm
+          prefetchNextImage();
 
           if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
             toggleDashboardUI();
