@@ -42,8 +42,8 @@ let bot = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
 let isManualStopped = false;
-let isFirstSpawn = true;
 let isSpawnGracePeriod = true;
+let spawnGraceTimer = null;
 
 let currentReconnectDelay = 8000;
 let consecutiveFailures = 0;
@@ -52,17 +52,12 @@ let watchdogInterval = null;
 let posCheckInterval = null;
 let pingInterval = null;
 let ramGcInterval = null;
-let commandResponseTimer = null;
 
 let quylaiInterval = null;
 let attackLeftInterval = null;
 let attackRightInterval = null;
-let skillLoopInterval = null;
-let sneakLoopInterval = null;
 let slotSwitchInterval = null;
 
-let isAwaitingResponse = false;
-let lastActionTime = Date.now();
 let lastPacketTime = Date.now();
 let currentCoords = 'Đang xác định...';
 let currentPing = 0;
@@ -77,10 +72,28 @@ function getVNTime() {
   return new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 }
 
+function stripFormatting(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').replace(/\u001b\[[0-9;]*m/g, '').trim();
+}
+
+// Chuẩn hóa Unicode Small-Caps thành chữ thường tiêu chuẩn để nhận diện chính xác
+function normalizeText(str) {
+  if (typeof str !== 'string') return '';
+  let text = stripFormatting(str);
+  const smallCapsMap = {
+    'ᴀ':'a', 'ʙ':'b', 'ᴄ':'c', 'ᴅ':'d', 'ᴇ':'e', 'ꜰ':'f', 'ɢ':'g', 'ʜ':'h', 'ɪ':'i',
+    'ᴊ':'j', 'ᴋ':'k', 'ʟ':'l', 'ᴍ':'m', 'ɴ':'n', 'ᴏ':'o', 'ᴘ':'p', 'ǫ':'q', 'ʀ':'r',
+    'ꜱ':'s', 'ᴛ':'t', 'ᴜ':'u', 'ᴠ':'v', 'ᴡ':'w', 'x':'x', 'ʏ':'y', 'ᴢ':'z'
+  };
+  text = text.replace(/[ᴀ-ᴢ]/g, ch => smallCapsMap[ch] || ch);
+  return text.toLowerCase();
+}
+
 function addChatLog(msg) {
   if (!msg) return;
   const formatted = '[' + getVNTime() + '] ' + msg;
-  if (serverChatLogs.length > 0 && serverChatLogs[0] === formatted) return; // Deduplicate consecutive identical messages
+  if (serverChatLogs.length > 0 && serverChatLogs[0] === formatted) return;
   serverChatLogs.unshift(formatted);
   if (serverChatLogs.length > 100) serverChatLogs.pop();
 }
@@ -108,11 +121,6 @@ function addBotMentionLog(msg) {
     text: msg
   });
   if (botMentionLogs.length > 40) botMentionLogs.pop();
-}
-
-function stripFormatting(str) {
-  if (typeof str !== 'string') return '';
-  return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').replace(/\u001b\[[0-9;]*m/g, '').trim();
 }
 
 function getExactItemName(item) {
@@ -168,10 +176,8 @@ function cleanupBot() {
   if (quylaiInterval) { clearInterval(quylaiInterval); quylaiInterval = null; }
   if (attackLeftInterval) { clearInterval(attackLeftInterval); attackLeftInterval = null; }
   if (attackRightInterval) { clearInterval(attackRightInterval); attackRightInterval = null; }
-  if (skillLoopInterval) { clearInterval(skillLoopInterval); skillLoopInterval = null; }
-  if (sneakLoopInterval) { clearInterval(sneakLoopInterval); sneakLoopInterval = null; }
   if (slotSwitchInterval) { clearInterval(slotSwitchInterval); slotSwitchInterval = null; }
-  if (commandResponseTimer) { clearTimeout(commandResponseTimer); commandResponseTimer = null; }
+  if (spawnGraceTimer) { clearTimeout(spawnGraceTimer); spawnGraceTimer = null; }
 
   if (bot) {
     try {
@@ -179,7 +185,7 @@ function cleanupBot() {
       if (bot._client) bot._client.removeAllListeners();
       bot.end();
     } catch (e) {
-      // Ignore cleanup exceptions
+      // Dọn dẹp lỗi socket ẩn
     }
     bot = null;
   }
@@ -188,13 +194,15 @@ function cleanupBot() {
 }
 
 function scheduleReconnect(reason, customDelayMs = null) {
+  // DỌN DẸP INTERVALS TRƯỚC ĐỂ TRÁNH TRÙNG LẶP WATCHDOG
+  cleanupBot();
+
   if (isManualStopped) return;
   if (isReconnecting) return;
 
   isReconnecting = true;
-  cleanupBot();
-
   consecutiveFailures++;
+
   let delay = customDelayMs !== null ? customDelayMs : Math.min(8000 + (consecutiveFailures * 2000), 30000);
   currentReconnectDelay = delay;
 
@@ -227,7 +235,7 @@ function restartLoops() {
   // Attack Left Click Loop
   if (toggles.attackLeft) {
     attackLeftInterval = setInterval(() => {
-      if (bot && bot.entity) {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play') {
         try {
           bot.swingArm('mainhand');
         } catch (e) {}
@@ -238,7 +246,7 @@ function restartLoops() {
   // Attack Right Click Loop
   if (toggles.attackRight) {
     attackRightInterval = setInterval(() => {
-      if (bot && bot.entity) {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play') {
         try {
           bot.swingArm('offhand');
           bot.activateItem();
@@ -262,7 +270,7 @@ function restartLoops() {
 
   if (activeSlots.length > 0) {
     slotSwitchInterval = setInterval(() => {
-      if (!bot || !bot.inventory) return;
+      if (!bot || !bot.inventory || !bot._client || bot._client.state !== 'play') return;
       currentSlotIndex = (currentSlotIndex + 1) % activeSlots.length;
       const targetSlot = activeSlots[currentSlotIndex];
       try {
@@ -290,22 +298,33 @@ function createBot() {
       checkTimeoutInterval: 60 * 1000
     });
 
-    if (bot._client) {
-      bot._client.on('packet', () => {
-        lastPacketTime = Date.now();
-      });
-    }
-
     bot.on('login', () => {
       addErrorLog('THÀNH CÔNG', `Đã xác thực thành công với Server! Đang chờ Spawn...`);
       lastPacketTime = Date.now();
+
+      if (bot._client) {
+        bot._client.on('packet', () => {
+          lastPacketTime = Date.now();
+        });
+        bot._client.on('error', (err) => {
+          addErrorLog('Client Socket Error', err ? (err.message || String(err)) : 'Không xác định');
+        });
+      }
     });
 
     bot.on('spawn', () => {
-      isSpawnGracePeriod = false;
-      consecutiveFailures = 0;
       lastPacketTime = Date.now();
       addErrorLog('VÀO GAME', `Bot [${BOT_USERNAME}] đã Spawn vào thế giới game!`);
+
+      // Cho phép thời gian chờ 5 giây sau khi Spawn rồi mới bật các Loop tự động
+      isSpawnGracePeriod = true;
+      if (spawnGraceTimer) clearTimeout(spawnGraceTimer);
+      spawnGraceTimer = setTimeout(() => {
+        isSpawnGracePeriod = false;
+        consecutiveFailures = 0;
+        addErrorLog('SẴN SÀNG', `Đã hết thời gian chờ Spawn (5s). Kích hoạt các tính năng tự động...`);
+        restartLoops();
+      }, 5000);
 
       // Watchdog Check Interval
       if (watchdogInterval) clearInterval(watchdogInterval);
@@ -324,11 +343,9 @@ function createBot() {
       // Position Check Interval
       if (posCheckInterval) clearInterval(posCheckInterval);
       posCheckInterval = setInterval(() => {
-        if (bot && bot.entity) {
+        if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
-          if (pos) {
-            currentCoords = `X: ${Math.round(pos.x)}, Y: ${Math.round(pos.y)}, Z: ${Math.round(pos.z)}`;
-          }
+          currentCoords = `X: ${Math.round(pos.x)}, Y: ${Math.round(pos.y)}, Z: ${Math.round(pos.z)}`;
         }
       }, 3000);
 
@@ -340,8 +357,6 @@ function createBot() {
           addPingLog(currentPing);
         }
       }, 10000);
-
-      restartLoops();
     });
 
     const handleRawChatMessage = (rawText) => {
@@ -363,11 +378,14 @@ function createBot() {
     });
 
     bot.on('kicked', (reason) => {
-      let cleanReason = typeof reason === 'string' ? stripFormatting(reason) : JSON.stringify(reason);
+      let rawReason = typeof reason === 'string' ? reason : JSON.stringify(reason);
+      let cleanReason = stripFormatting(rawReason);
+      let normReason = normalizeText(rawReason);
+
       addErrorLog('Bị Server Kick', cleanReason || 'Không có lý do');
 
-      // Check if server is saving data or asking to wait 5 seconds
-      if (cleanReason.includes('lưu dữ liệu') || cleanReason.includes('vào lại sau') || cleanReason.includes('5 giây')) {
+      // Kiểm tra lý do Kick với văn bản Unicode chuẩn hóa
+      if (normReason.includes('luu du lieu') || normReason.includes('lưu dữ liệu') || normReason.includes('vao lai sau') || normReason.includes('vào lại sau') || normReason.includes('5 giay') || normReason.includes('5 giây')) {
         scheduleReconnect('Server yêu cầu chờ lưu dữ liệu', 12000);
       } else {
         scheduleReconnect('Bị Server Kick', 8000);
@@ -377,7 +395,12 @@ function createBot() {
     bot.on('error', (err) => {
       const errMsg = err ? (err.message || String(err)) : 'Không xác định';
       addErrorLog('Mineflayer Error', errMsg);
-      scheduleReconnect('Mineflayer Error', 10000);
+
+      if (errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')) {
+        scheduleReconnect('Không tìm thấy IP/Domain Server (ENOTFOUND)', 15000);
+      } else {
+        scheduleReconnect('Mineflayer Error', 10000);
+      }
     });
 
     bot.on('end', (reason) => {
@@ -392,11 +415,18 @@ function createBot() {
 }
 
 process.on('uncaughtException', (err) => {
-  addErrorLog('Uncaught Exception', err ? (err.message || String(err)) : 'Unknown');
+  const errMsg = err ? (err.message || String(err)) : 'Unknown';
+  addErrorLog('Uncaught Exception', errMsg);
+  if (!bot || !bot._client || bot._client.state !== 'play') {
+    scheduleReconnect('Hồi phục sau Uncaught Exception', 10000);
+  }
 });
 
 process.on('unhandledRejection', (reason) => {
   addErrorLog('Unhandled Rejection', String(reason));
+  if (!bot || !bot._client || bot._client.state !== 'play') {
+    scheduleReconnect('Hồi phục sau Unhandled Rejection', 10000);
+  }
 });
 
 ramGcInterval = setInterval(() => {
@@ -856,8 +886,8 @@ app.get('/', (req, res) => {
     }
 
     .chat-box { background: rgba(0, 0, 0, 0.88); padding: 12px; border-radius: 12px; font-family: monospace; height: 350px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.85rem; line-height: 1.5; }
-    .error-box { background: rgba(15, 5, 5, 0.9); padding: 12px; border-radius: 12px; font-family: monospace; height: 300px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.5); font-size: 0.85rem; line-height: 1.5; }
-    .kiru-box { background: rgba(15, 23, 15, 0.9); padding: 12px; border-radius: 12px; font-family: monospace; height: 250px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.5); font-size: 0.85rem; line-height: 1.5; }
+    .error-box { background: rgba(15, 5, 5, 0.9); padding: 12px; border-radius: 12px; font-family: monospace; height: 350px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.5); font-size: 0.85rem; line-height: 1.5; }
+    .kiru-box { background: rgba(15, 23, 15, 0.9); padding: 12px; border-radius: 12px; font-family: monospace; height: 350px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.5); font-size: 0.85rem; line-height: 1.5; }
 
     .input-group { display: flex; gap: 10px; margin-top: 10px; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -1041,7 +1071,6 @@ app.get('/', (req, res) => {
 
         img.onload = () => {
           clearTimeout(timer);
-          // Require Landscape Orientation (Width >= Height)
           if (img.width >= img.height) {
             resolve({ url, imgObj: img });
           } else {
@@ -1188,7 +1217,7 @@ app.get('/', (req, res) => {
           const mentionBox = document.getElementById('modal-mention-box');
           if (mentionBox) {
             if (data.botMentionLogs.length === 0) {
-              mentionBox.innerHTML = '<i>Chưa có tin nhắn nào nhắc đến bot...</i>';
+              mentionBox.innerHTML = '<div style="color:var(--accent-green);">Chưa có tin nhắn nào nhắc đến bot...</div>';
             } else {
               mentionBox.innerHTML = data.botMentionLogs.map(k => '<div>[' + k.time + '] ' + k.text + '</div>').join('');
             }
@@ -1200,7 +1229,7 @@ app.get('/', (req, res) => {
 
     window.addEventListener('DOMContentLoaded', () => {
       fillImageCacheQueue().then(() => displayNextImage());
-      setInterval(displayNextImage, 20000); // Rotate every 20 seconds
+      setInterval(displayNextImage, 20000);
 
       if (localStorage.getItem('ui_hidden_mode') === '1') {
         toggleDashboardUI();
@@ -1345,16 +1374,16 @@ app.get('/', (req, res) => {
     </div>
   </div>
 
-  <!-- MODAL MENTIONS -->
+  <!-- MODAL MENTIONS (MENU GIỐNG NHẬT KÝ LỖI) -->
   <div id="modal-mention" class="modal-overlay">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 style="margin:0; color:var(--accent-yellow);">🔔 Tin Nhắn Nhắc Đến Bot</h3>
+        <h3 style="margin:0; color:var(--accent-yellow);">🔔 Cửa Sổ Nhật Ký Nhắc Tên (Mention)</h3>
         <button type="button" class="modal-close" onclick="closeModal('modal-mention')">&times;</button>
       </div>
       <div id="modal-mention-box" class="kiru-box"></div>
       <div style="margin-top:10px; text-align:right;">
-        <a href="/api/clear-mention-log"><button type="button" class="btn-warning">Xóa Lượt Mention</button></a>
+        <a href="/api/clear-mention-log"><button type="button" class="btn-warning">Xóa Nhật Ký Nhắc Tên</button></a>
       </div>
     </div>
   </div>
