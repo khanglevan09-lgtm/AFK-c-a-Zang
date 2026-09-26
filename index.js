@@ -391,7 +391,7 @@ app.get('/', (req, res) => {
 
   let statusBadge = '<span class="badge-off">OFFLINE</span>';
   if (isManualStopped) {
-    statusBadge = '<span class="badge-pause">ĐÃ TẮT THỦ CÔNG (NHƯỜNG NICK)</span>';
+    statusBadge = '<span class="badge-pause">ĐÃ TẮT THỦ CÔNG</span>';
   } else if (bot && bot._client && bot._client.state === 'play') {
     statusBadge = '<span class="badge-on">ONLINE</span>';
   } else {
@@ -406,11 +406,13 @@ app.get('/', (req, res) => {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <meta name="referrer" content="no-referrer">
       <title>Kiru Đẹp Trai - MC Bot Control</title>
       <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+      
       <style>
         :root {
-          --card-bg: rgba(11, 15, 25, 0.92);
+          --card-bg: rgba(11, 15, 25, 0.90);
           --accent-cyan: #38bdf8;
           --accent-pink: #f43f5e;
           --accent-purple: #c084fc;
@@ -423,33 +425,32 @@ app.get('/', (req, res) => {
 
         #bg-container {
           position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
+          top: 0; left: 0; width: 100vw; height: 100vh;
           z-index: -2;
           overflow: hidden;
-          background-color: #05070f;
+          background-color: #080c14;
         }
 
-        #bg-blur {
+        .bg-img-blur {
           position: absolute;
-          top: -10%; left: -10%; width: 120%; height: 120%;
-          background-position: center center;
-          background-size: cover;
-          filter: blur(30px) brightness(0.5);
+          top: -10%; left: -10%;
+          width: 120vw; height: 120vh;
+          object-fit: cover;
+          filter: blur(35px) brightness(0.45);
           transform: scale(1.1);
-          transition: background-image 0.6s ease-in-out;
+          transition: opacity 0.6s ease;
         }
 
-        #bg-main {
+        .bg-img-main {
           position: absolute;
-          top: 0; left: 0; width: 100%; height: 100%;
-          background-position: center center;
-          background-repeat: no-repeat;
-          background-size: contain;
-          transition: background-image 0.6s ease-in-out, background-size 0.3s ease;
+          top: 0; left: 0;
+          width: 100vw; height: 100vh;
+          object-fit: contain;
+          transition: opacity 0.6s ease;
         }
 
-        body.bg-mode-cover #bg-main {
-          background-size: cover;
+        body.bg-mode-cover .bg-img-main {
+          object-fit: cover !important;
         }
 
         body {
@@ -465,7 +466,7 @@ app.get('/', (req, res) => {
           content: '';
           position: fixed;
           top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(3, 7, 18, 0.75);
+          background: rgba(3, 7, 18, 0.65);
           backdrop-filter: blur(6px);
           -webkit-backdrop-filter: blur(6px);
           z-index: -1;
@@ -473,9 +474,9 @@ app.get('/', (req, res) => {
         }
 
         body.ui-hidden::before {
-          background: rgba(0, 0, 0, 0.02);
-          backdrop-filter: blur(0px);
-          -webkit-backdrop-filter: blur(0px);
+          background: transparent !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
         }
 
         body.ui-hidden .container,
@@ -483,20 +484,26 @@ app.get('/', (req, res) => {
           display: none !important;
         }
 
-        .fab-toggle {
+        #fab-container {
           position: fixed;
           bottom: 20px;
           right: 20px;
           z-index: 9999;
-          padding: 12px 22px;
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .fab-toggle {
+          padding: 12px 20px;
           border-radius: 30px;
           font-weight: 700;
-          font-size: 0.95rem;
+          font-size: 0.92rem;
           cursor: pointer;
           background: linear-gradient(135deg, #0ea5e9, #a855f7);
           color: #ffffff;
-          border: 2px solid rgba(255, 255, 255, 0.7);
-          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7), 0 0 15px rgba(56, 189, 248, 0.5);
+          border: 2px solid rgba(255, 255, 255, 0.8);
+          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8), 0 0 15px rgba(56, 189, 248, 0.6);
           transition: all 0.3s ease;
           display: flex;
           align-items: center;
@@ -511,14 +518,14 @@ app.get('/', (req, res) => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 20px;
+          padding: 14px 20px;
           background: rgba(11, 15, 25, 0.95);
           border: 1px solid var(--border);
           border-radius: 16px;
           margin-bottom: 20px;
           gap: 12px;
           flex-wrap: wrap;
-          box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+          box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
         }
 
         h1 {
@@ -571,7 +578,7 @@ app.get('/', (req, res) => {
         }
 
         .status-item {
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0, 0, 0, 0.65);
           border: 1px solid rgba(255, 255, 255, 0.15);
           padding: 10px 12px;
           border-radius: 12px;
@@ -602,7 +609,7 @@ app.get('/', (req, res) => {
           margin: 12px 0;
         }
         .slot-item {
-          background: rgba(0, 0, 0, 0.7);
+          background: rgba(0, 0, 0, 0.75);
           border: 1px solid rgba(56, 189, 248, 0.4);
           border-radius: 10px;
           padding: 8px 4px;
@@ -619,9 +626,9 @@ app.get('/', (req, res) => {
           accent-color: var(--accent-pink);
         }
 
-        .chat-box { background: rgba(0, 0, 0, 0.75); padding: 12px; border-radius: 12px; font-family: monospace; height: 320px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.85rem; line-height: 1.5; }
-        .error-box { background: rgba(15, 5, 5, 0.85); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.5); font-size: 0.85rem; line-height: 1.5; }
-        .kiru-box { background: rgba(15, 23, 15, 0.85); padding: 12px; border-radius: 12px; font-family: monospace; height: 180px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.5); font-size: 0.85rem; line-height: 1.5; }
+        .chat-box { background: rgba(0, 0, 0, 0.85); padding: 12px; border-radius: 12px; font-family: monospace; height: 320px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.85rem; line-height: 1.5; }
+        .error-box { background: rgba(15, 5, 5, 0.88); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.5); font-size: 0.85rem; line-height: 1.5; }
+        .kiru-box { background: rgba(15, 23, 15, 0.88); padding: 12px; border-radius: 12px; font-family: monospace; height: 180px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.5); font-size: 0.85rem; line-height: 1.5; }
 
         .input-group { display: flex; gap: 10px; margin-top: 10px; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -657,12 +664,12 @@ app.get('/', (req, res) => {
         }
         button:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(225, 29, 72, 0.6); }
 
-        .btn-stop { background: linear-gradient(135deg, #b91c1c, #ef4444) !important; border: 1px solid #f87171 !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
-        .btn-start { background: linear-gradient(135deg, #15803d, #22c55e) !important; border: 1px solid #4ade80 !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
-        .btn-cyan { background: linear-gradient(135deg, #0369a1, #0ea5e9) !important; border: 1px solid #38bdf8 !important; box-shadow: 0 0 10px rgba(14, 165, 233, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
-        .btn-warning { background: linear-gradient(135deg, #b45309, #f59e0b) !important; border: 1px solid #fbbf24 !important; box-shadow: 0 0 10px rgba(245, 158, 11, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
-        .btn-purple { background: linear-gradient(135deg, #6b21a8, #a855f7) !important; border: 1px solid #c084fc !important; box-shadow: 0 0 10px rgba(168, 85, 247, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
-        .btn-save { background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important; border: 1px solid #60a5fa !important; width: 100%; margin-top: 10px; box-shadow: 0 0 12px rgba(59, 130, 246, 0.4) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-stop { background: linear-gradient(135deg, #b91c1c, #ef4444) !important; border: 1px solid #f87171 !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important; }
+        .btn-start { background: linear-gradient(135deg, #15803d, #22c55e) !important; border: 1px solid #4ade80 !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3) !important; }
+        .btn-cyan { background: linear-gradient(135deg, #0369a1, #0ea5e9) !important; border: 1px solid #38bdf8 !important; box-shadow: 0 0 10px rgba(14, 165, 233, 0.3) !important; }
+        .btn-warning { background: linear-gradient(135deg, #b45309, #f59e0b) !important; border: 1px solid #fbbf24 !important; box-shadow: 0 0 10px rgba(245, 158, 11, 0.3) !important; }
+        .btn-purple { background: linear-gradient(135deg, #6b21a8, #a855f7) !important; border: 1px solid #c084fc !important; box-shadow: 0 0 10px rgba(168, 85, 247, 0.3) !important; }
+        .btn-save { background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important; border: 1px solid #60a5fa !important; width: 100%; margin-top: 10px; box-shadow: 0 0 12px rgba(59, 130, 246, 0.4) !important; }
 
         .btn-group-responsive {
           display: grid;
@@ -727,92 +734,152 @@ app.get('/', (req, res) => {
           .card { padding: 14px; }
         }
       </style>
-      <script>
-        let currentBgImageObj = null;
 
-        // Danh sách ảnh nền dự phòng Anime Gái Xinh HD Khung Ngang (Width > Height)
-        const FALLBACK_BGS = [
-          'https://images7.alphacoders.com/133/1330909.png',
-          'https://images2.alphacoders.com/131/1317426.jpeg',
-          'https://images8.alphacoders.com/129/1298818.jpg',
-          'https://images4.alphacoders.com/134/1340453.png',
-          'https://images5.alphacoders.com/132/1328005.jpeg',
-          'https://images6.alphacoders.com/133/1332219.png'
+      <script>
+        // KHO ÁNH DỰ PHÒNG CHUẨN ANIME GÁI XINH - KHUNG NGANG 100% SẮC NÉT (LANDSCAPE)
+        const CURATED_LANDSCAPE_BGS = [
+          'https://cdn.waifu.im/7438.jpg',
+          'https://cdn.waifu.im/6226.jpg',
+          'https://cdn.waifu.im/7140.jpg',
+          'https://cdn.waifu.im/7290.jpg',
+          'https://cdn.waifu.im/7086.png',
+          'https://cdn.waifu.im/6831.jpg',
+          'https://cdn.waifu.im/7580.jpg',
+          'https://cdn.waifu.im/7311.png',
+          'https://cdn.waifu.im/7418.jpg',
+          'https://cdn.waifu.im/7212.jpg',
+          'https://cdn.waifu.im/7211.jpg',
+          'https://cdn.waifu.im/7010.jpg',
+          'https://cdn.waifu.im/8020.jpg',
+          'https://cdn.waifu.im/8145.jpg',
+          'https://cdn.waifu.im/8290.jpg'
         ];
 
-        let fallbackIdx = 0;
+        let currentFallbackIndex = Math.floor(Math.random() * CURATED_LANDSCAPE_BGS.length);
 
-        function applyBgImage(imgUrl) {
-          const bgMain = document.getElementById('bg-main');
-          const bgBlur = document.getElementById('bg-blur');
-          if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
-          if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
+        function testAndPreloadLandscapeImage(url, timeoutMs = 3500) {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.referrerPolicy = 'no-referrer';
+            
+            let timer = setTimeout(() => {
+              img.src = '';
+              reject(new Error('Timeout'));
+            }, timeoutMs);
+
+            img.onload = () => {
+              clearTimeout(timer);
+              if (img.naturalWidth >= img.naturalHeight) {
+                resolve(url);
+              } else {
+                reject(new Error('Not landscape'));
+              }
+            };
+
+            img.onerror = () => {
+              clearTimeout(timer);
+              reject(new Error('Failed to load'));
+            };
+
+            img.src = url;
+          });
         }
 
-        async function rotateAnimeBg() {
-          const apis = [
+        function applyVerifiedImage(url) {
+          const bgMain = document.getElementById('bg-main-img');
+          const bgBlur = document.getElementById('bg-blur-img');
+
+          if (bgMain) bgMain.src = url;
+          if (bgBlur) bgBlur.src = url;
+
+          try {
+            localStorage.setItem('last_valid_anime_bg', url);
+          } catch(e) {}
+        }
+
+        async function rotateAnimeBg(isManual = false) {
+          const btnHeader = document.getElementById('btn-rotate-bg');
+          const btnFab = document.getElementById('fab-rotate-bg');
+
+          if (btnHeader) btnHeader.innerHTML = '⏳ Đang tìm ảnh...';
+          if (btnFab) btnFab.innerHTML = '⏳ Đang tải...';
+
+          const apiProviders = [
             'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
             'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=marin-kitagawa&orientation=LANDSCAPE',
             'https://api.waifu.im/search?included_tags=uniform&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
             'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
             'https://nekos.best/api/v2/waifu',
             'https://api.waifu.pics/sfw/waifu'
           ];
 
-          let success = false;
+          let isSuccess = false;
           let attempts = 0;
 
-          while (attempts < 5 && !success) {
+          while (attempts < 5 && !isSuccess) {
             attempts++;
-            const apiUrl = apis[Math.floor(Math.random() * apis.length)];
+            const selectedApi = apiProviders[Math.floor(Math.random() * apiProviders.length)];
+            
             try {
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-              const res = await fetch(apiUrl, { signal: controller.signal });
+              const response = await fetch(selectedApi, { signal: controller.signal });
               clearTimeout(timeoutId);
-              if (!res.ok) continue;
-              const data = await res.json();
 
-              let imgUrl = '';
+              if (!response.ok) continue;
+              const data = await response.json();
+
+              let candidateUrl = '';
               if (data && data.images && data.images[0] && data.images[0].url) {
-                imgUrl = data.images[0].url;
-              } else if (data && data.url) {
-                imgUrl = data.url;
+                candidateUrl = data.images[0].url;
               } else if (data && data.results && data.results[0] && data.results[0].url) {
-                imgUrl = data.results[0].url;
+                candidateUrl = data.results[0].url;
+              } else if (data && data.url) {
+                candidateUrl = data.url;
               }
 
-              if (imgUrl) {
-                const isLandscape = await new Promise((resolve) => {
-                  const img = new Image();
-                  currentBgImageObj = img;
-                  img.onload = () => {
-                    // Bắt buộc kiểm tra Chiều Ngang > Chiều Dọc
-                    if (img.naturalWidth > img.naturalHeight) {
-                      resolve(true);
-                    } else {
-                      resolve(false);
-                    }
-                  };
-                  img.onerror = () => resolve(false);
-                  img.src = imgUrl;
-                });
-
-                if (isLandscape) {
-                  applyBgImage(imgUrl);
-                  success = true;
-                  break;
-                }
+              if (candidateUrl) {
+                const verifiedUrl = await testAndPreloadLandscapeImage(candidateUrl, 3000);
+                applyVerifiedImage(verifiedUrl);
+                isSuccess = true;
+                break;
               }
-            } catch (e) {}
+            } catch (err) {}
           }
 
-          if (!success) {
-            fallbackIdx = (fallbackIdx + 1) % FALLBACK_BGS.length;
-            applyBgImage(FALLBACK_BGS[fallbackIdx]);
+          if (!isSuccess) {
+            let fallbackAttempts = 0;
+            while (fallbackAttempts < CURATED_LANDSCAPE_BGS.length) {
+              fallbackAttempts++;
+              currentFallbackIndex = (currentFallbackIndex + 1) % CURATED_LANDSCAPE_BGS.length;
+              const fallbackUrl = CURATED_LANDSCAPE_BGS[currentFallbackIndex];
+              try {
+                const verifiedUrl = await testAndPreloadLandscapeImage(fallbackUrl, 3000);
+                applyVerifiedImage(verifiedUrl);
+                break;
+              } catch (e) {}
+            }
+          }
+
+          if (btnHeader) btnHeader.innerHTML = '🔄 Đổi Ảnh Khác';
+          if (btnFab) btnFab.innerHTML = '🔄 Đổi Ảnh';
+        }
+
+        function setCustomBgUrl() {
+          const input = document.getElementById('custom-bg-input');
+          if (input && input.value.trim() !== '') {
+            const url = input.value.trim();
+            testAndPreloadLandscapeImage(url, 4000)
+              .then(verified => {
+                applyVerifiedImage(verified);
+                closeModal('modal-custom-bg');
+              })
+              .catch(() => {
+                applyVerifiedImage(url);
+                closeModal('modal-custom-bg');
+              });
           }
         }
 
@@ -825,6 +892,21 @@ app.get('/', (req, res) => {
           }
           try {
             localStorage.setItem('bg_fit_mode', isCover ? 'cover' : 'contain');
+          } catch (e) {}
+        }
+
+        function toggleDashboardUI() {
+          document.body.classList.toggle('ui-hidden');
+          const isHidden = document.body.classList.contains('ui-hidden');
+          const fabBtn = document.getElementById('fab-ui-toggle');
+          const headerBtn = document.getElementById('header-ui-toggle');
+          const text = isHidden ? '📋 Hiện Bảng Control' : '👁️ Thu Gọn Bảng (Xem Ảnh)';
+
+          if (fabBtn) fabBtn.innerHTML = text;
+          if (headerBtn) headerBtn.innerHTML = text;
+
+          try {
+            localStorage.setItem('dashboard_ui_hidden', isHidden ? 'true' : 'false');
           } catch (e) {}
         }
 
@@ -863,25 +945,16 @@ app.get('/', (req, res) => {
           document.getElementById(id).style.display = 'none';
         }
 
-        function toggleDashboardUI() {
-          document.body.classList.toggle('ui-hidden');
-          const isHidden = document.body.classList.contains('ui-hidden');
-          const fabBtn = document.getElementById('fab-ui-toggle');
-          const headerBtn = document.getElementById('header-ui-toggle');
-          const btnText = isHidden ? '📋 Hiện Bảng Control' : '👁️ Thu Gọn Bảng (Xem Ảnh)';
-          
-          if (fabBtn) fabBtn.innerHTML = btnText;
-          if (headerBtn) headerBtn.innerHTML = btnText;
-
-          try {
-            localStorage.setItem('dashboard_ui_hidden', isHidden ? 'true' : 'false');
-          } catch (e) {}
-        }
-
         window.addEventListener('DOMContentLoaded', () => {
-          // Set ngay 1 ảnh nền mặc định để tuyệt đối không bị đen màn hình
-          const initialFallback = FALLBACK_BGS[Math.floor(Math.random() * FALLBACK_BGS.length)];
-          applyBgImage(initialFallback);
+          let savedBg = null;
+          try { savedBg = localStorage.getItem('last_valid_anime_bg'); } catch(e) {}
+
+          const defaultInitialUrl = savedBg || CURATED_LANDSCAPE_BGS[currentFallbackIndex];
+          applyVerifiedImage(defaultInitialUrl);
+
+          if (!savedBg) {
+            rotateAnimeBg();
+          }
 
           if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
             toggleDashboardUI();
@@ -891,7 +964,6 @@ app.get('/', (req, res) => {
             toggleBgFit();
           }
 
-          rotateAnimeBg();
           setInterval(rotateAnimeBg, 90000);
           setInterval(fetchRealtimeStatus, 5000);
         });
@@ -899,14 +971,15 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div id="bg-container">
-        <div id="bg-blur"></div>
-        <div id="bg-main"></div>
+        <img id="bg-blur-img" class="bg-img-blur" referrerpolicy="no-referrer" alt="background blur">
+        <img id="bg-main-img" class="bg-img-main" referrerpolicy="no-referrer" alt="background main">
       </div>
 
       <div class="header">
         <h1>KIRU ĐẸP TRAI</h1>
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button type="button" class="btn-warning" onclick="rotateAnimeBg()">🔄 Đổi Ảnh Khác</button>
+          <button id="btn-rotate-bg" type="button" class="btn-warning" onclick="rotateAnimeBg(true)">🔄 Đổi Ảnh Khác</button>
+          <button type="button" class="btn-purple" onclick="openModal('modal-custom-bg')">🔗 Dán Link Ảnh</button>
           <button id="bg-fit-toggle" type="button" class="btn-purple" onclick="toggleBgFit()">🖼️ Chế độ: Vừa Khung (Xem Hết)</button>
           <button id="header-ui-toggle" type="button" class="btn-cyan" onclick="toggleDashboardUI()">👁️ Thu Gọn Bảng (Xem Ảnh)</button>
           <div>${statusBadge}</div>
@@ -1068,7 +1141,7 @@ app.get('/', (req, res) => {
         <div class="modal-card">
           <div class="modal-header">
             <h3 style="margin: 0; color: var(--accent-cyan);">💬 Cửa Sổ Chat Server</h3>
-            <button class="modal-close" onclick="closeModal('modal-chat')">&times;</button>
+            <button type="button" class="modal-close" onclick="closeModal('modal-chat')">&times;</button>
           </div>
           <div class="chat-box" style="flex: 1; height: 100%;">
             ${renderChatLogs()}
@@ -1096,9 +1169,27 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
+      <!-- MODAL DÁN LINK ẢNH TÙY CHỈNH -->
+      <div id="modal-custom-bg" class="modal-overlay">
+        <div class="modal-card" style="max-width: 500px;">
+          <div class="modal-header">
+            <h3 style="margin: 0; color: var(--accent-purple);">🖼️ Dán Link Ảnh Nền Tùy Chỉnh</h3>
+            <button type="button" class="modal-close" onclick="closeModal('modal-custom-bg')">&times;</button>
+          </div>
+          <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 12px;">
+            Nhập đường dẫn URL hình ảnh (JPG, PNG, GIF...) bạn muốn làm ảnh nền:
+          </p>
+          <input type="text" id="custom-bg-input" placeholder="https://example.com/anime-wallpaper.jpg" style="margin-bottom: 15px;">
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button type="button" class="btn-cyan" onclick="setCustomBgUrl()">Áp Dụng Ảnh</button>
+            <button type="button" class="btn-stop" onclick="closeModal('modal-custom-bg')">Đóng</button>
+          </div>
+        </div>
+      </div>
+
       <!-- NÚT NỔI FAB LUÔN HIỂN THỊ -->
       <div id="fab-container">
-        <button type="button" class="fab-toggle" style="background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="rotateAnimeBg()">
+        <button id="fab-rotate-bg" type="button" class="fab-toggle" style="background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="rotateAnimeBg(true)">
           🔄 Đổi Ảnh
         </button>
         <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
