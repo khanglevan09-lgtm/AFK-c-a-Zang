@@ -357,35 +357,212 @@ app.get('/', (req, res) => {
       <title>Kiru Đẹp Trai - MC Bot Control</title>
       <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
       <style>
-        /* ... existing CSS ... */
-        /* TOOLBAR SLOTS UI */
+        :root {
+          --card-bg: rgba(11, 15, 25, 0.92);
+          --accent-cyan: #38bdf8;
+          --accent-pink: #f43f5e;
+          --accent-purple: #c084fc;
+          --accent-green: #4ade80;
+          --accent-yellow: #fbbf24;
+          --border: rgba(56, 189, 248, 0.35);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          margin: 0;
+          padding: 16px;
+          color: #f8fafc;
+          min-height: 100vh;
+          background-color: #05070f;
+          background-position: center center;
+          background-repeat: no-repeat;
+          background-attachment: fixed;
+          background-size: cover;
+          transition: background-image 1s ease-in-out;
+          position: relative;
+        }
+
+        body::before {
+          content: '';
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(3, 7, 18, 0.75);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          z-index: -1;
+        }
+
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 20px;
+          background: rgba(11, 15, 25, 0.95);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          margin-bottom: 20px;
+          gap: 12px;
+          flex-wrap: wrap;
+          box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+        }
+
+        h1 {
+          font-family: 'Orbitron', sans-serif;
+          font-size: 1.8rem;
+          margin: 0;
+          background: linear-gradient(90deg, #38bdf8, #f43f5e, #c084fc);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          text-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+          letter-spacing: 1px;
+        }
+
+        .container {
+          display: grid;
+          grid-template-columns: 2fr 1fr;
+          gap: 20px;
+        }
+
+        .card {
+          background: var(--card-bg);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          padding: 18px;
+          border-radius: 18px;
+          border: 1px solid var(--border);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 15px rgba(56, 189, 248, 0.15);
+          margin-bottom: 20px;
+        }
+
+        h3 {
+          margin-top: 0;
+          color: var(--accent-cyan);
+          font-size: 1.15rem;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+        }
+
+        .badge-on { background: rgba(34, 197, 94, 0.25); color: #4ade80; border: 1px solid #4ade80; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; box-shadow: 0 0 10px rgba(74, 222, 128, 0.3); }
+        .badge-off { background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #f87171; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; box-shadow: 0 0 10px rgba(248, 113, 113, 0.3); }
+        .badge-pause { background: rgba(245, 158, 11, 0.25); color: #fbbf24; border: 1px solid #fbbf24; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; box-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
+
+        .status-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+          gap: 10px;
+          margin: 15px 0;
+        }
+
+        .status-item {
+          background: rgba(0, 0, 0, 0.6);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          padding: 10px 12px;
+          border-radius: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .status-item .label {
+          font-size: 0.7rem;
+          color: #cbd5e1;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          font-weight: 700;
+        }
+
+        .status-item .value {
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: #ffffff;
+          word-break: break-all;
+        }
+
         .slot-grid {
           display: grid;
           grid-template-columns: repeat(9, 1fr);
-          gap: 6px;
-          margin: 10px 0;
+          gap: 8px;
+          margin: 12px 0;
         }
         .slot-item {
-          background: rgba(0, 0, 0, 0.5);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 8px;
+          background: rgba(0, 0, 0, 0.7);
+          border: 1px solid rgba(56, 189, 248, 0.4);
+          border-radius: 10px;
           padding: 8px 4px;
           text-align: center;
-          font-size: 0.8rem;
+          font-size: 0.85rem;
+          color: #f1f5f9;
+          font-weight: bold;
         }
         .slot-item input[type="checkbox"] {
-          margin-top: 4px;
-          width: 16px;
-          height: 16px;
+          margin-top: 6px;
+          width: 18px;
+          height: 18px;
           cursor: pointer;
+          accent-color: var(--accent-pink);
         }
 
-        /* MODAL STYLES */
+        .chat-box { background: rgba(0, 0, 0, 0.75); padding: 12px; border-radius: 12px; font-family: monospace; height: 320px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 0.85rem; line-height: 1.5; }
+        .error-box { background: rgba(15, 5, 5, 0.85); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.5); font-size: 0.85rem; line-height: 1.5; }
+        .kiru-box { background: rgba(15, 23, 15, 0.85); padding: 12px; border-radius: 12px; font-family: monospace; height: 180px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.5); font-size: 0.85rem; line-height: 1.5; }
+
+        .input-group { display: flex; gap: 10px; margin-top: 10px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        label { font-size: 0.85rem; color: #e2e8f0; display: block; margin-bottom: 6px; font-weight: 600; }
+
+        input[type="text"], input[type="password"], input[type="number"] { 
+          width: 100%; 
+          padding: 10px 14px; 
+          border-radius: 10px; 
+          border: 1px solid rgba(255, 255, 255, 0.25); 
+          background: rgba(0, 0, 0, 0.65); 
+          color: #ffffff; 
+          outline: none; 
+          font-size: 0.9rem; 
+          font-weight: 600;
+        }
+        input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 12px rgba(56, 189, 248, 0.5); }
+
+        button {
+          padding: 10px 18px;
+          background: linear-gradient(135deg, #e11d48, #be123c);
+          color: white;
+          border: 1px solid #f43f5e;
+          border-radius: 10px;
+          cursor: pointer;
+          font-weight: bold;
+          transition: all 0.25s ease;
+          white-space: nowrap;
+          font-size: 0.88rem;
+          box-shadow: 0 4px 12px rgba(225, 29, 72, 0.3);
+          text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(225, 29, 72, 0.6); }
+
+        .btn-stop { background: linear-gradient(135deg, #b91c1c, #ef4444) !important; border: 1px solid #f87171 !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-start { background: linear-gradient(135deg, #15803d, #22c55e) !important; border: 1px solid #4ade80 !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-cyan { background: linear-gradient(135deg, #0369a1, #0ea5e9) !important; border: 1px solid #38bdf8 !important; box-shadow: 0 0 10px rgba(14, 165, 233, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-warning { background: linear-gradient(135deg, #b45309, #f59e0b) !important; border: 1px solid #fbbf24 !important; box-shadow: 0 0 10px rgba(245, 158, 11, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-purple { background: linear-gradient(135deg, #6b21a8, #a855f7) !important; border: 1px solid #c084fc !important; box-shadow: 0 0 10px rgba(168, 85, 247, 0.3) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+        .btn-save { background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important; border: 1px solid #60a5fa !important; width: 100%; margin-top: 10px; box-shadow: 0 0 12px rgba(59, 130, 246, 0.4) !important; text-shadow: 0 0 6px rgba(255,255,255,0.4) !important; }
+
+        .btn-group-responsive {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 10px;
+          margin-top: 15px;
+        }
+
         .modal-overlay {
           display: none;
           position: fixed;
           top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0, 0, 0, 0.8);
+          background: rgba(0, 0, 0, 0.85);
           backdrop-filter: blur(10px);
           z-index: 1000;
           justify-content: center;
@@ -402,7 +579,7 @@ app.get('/', (req, res) => {
           display: flex;
           flex-direction: column;
           padding: 20px;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+          box-shadow: 0 10px 40px rgba(0,0,0,0.9), 0 0 20px rgba(56, 189, 248, 0.3);
         }
         .modal-header {
           display: flex;
@@ -416,7 +593,7 @@ app.get('/', (req, res) => {
           background: transparent;
           border: none;
           color: #f43f5e;
-          font-size: 1.5rem;
+          font-size: 1.6rem;
           cursor: pointer;
           font-weight: bold;
         }
@@ -443,7 +620,7 @@ app.get('/', (req, res) => {
           if (!activeEl || activeEl.tagName !== 'INPUT') { location.reload(); }
         }, 5000);
 
-        // TỰ ĐỘNG LẤY ẢNH GÁI XINH ANIME LÀM NỀN TỪ MẠNG
+        // TỰ ĐỘNG LẤY ẢNH GÁI XINH ANIME LÀM NỀN TỪ MẠNG (TỰ ĐỔI MỖI 45 GIÂY)
         async function rotateAnimeBg() {
           const apis = [
             'https://api.waifu.pics/sfw/waifu',
@@ -479,7 +656,7 @@ app.get('/', (req, res) => {
 
         window.addEventListener('DOMContentLoaded', () => {
           rotateAnimeBg();
-          setInterval(rotateAnimeBg, 60000);
+          setInterval(rotateAnimeBg, 45000); // Tự đổi ảnh nền mỗi 45 giây
         });
       </script>
     </head>
