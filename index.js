@@ -405,18 +405,43 @@ app.get('/', (req, res) => {
 
         * { box-sizing: border-box; }
 
+        #bg-container {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          z-index: -2;
+          overflow: hidden;
+          background-color: #05070f;
+        }
+
+        #bg-blur {
+          position: absolute;
+          top: -10%; left: -10%; width: 120%; height: 120%;
+          background-position: center center;
+          background-size: cover;
+          filter: blur(30px) brightness(0.5);
+          transform: scale(1.1);
+          transition: background-image 0.6s ease-in-out;
+        }
+
+        #bg-main {
+          position: absolute;
+          top: 0; left: 0; width: 100%; height: 100%;
+          background-position: center center;
+          background-repeat: no-repeat;
+          background-size: contain;
+          transition: background-image 0.6s ease-in-out, background-size 0.3s ease;
+        }
+
+        body.bg-mode-cover #bg-main {
+          background-size: cover;
+        }
+
         body {
           font-family: 'Plus Jakarta Sans', sans-serif;
           margin: 0;
           padding: 16px;
           color: #f8fafc;
           min-height: 100vh;
-          background-color: #05070f;
-          background-position: center center;
-          background-repeat: no-repeat;
-          background-attachment: fixed;
-          background-size: cover;
-          transition: background-image 1s ease-in-out;
           position: relative;
         }
 
@@ -717,8 +742,10 @@ app.get('/', (req, res) => {
                 const img = new Image();
                 currentBgImageObj = img;
                 img.onload = () => {
-                  document.body.style.backgroundImage = 'url("' + imgUrl + '")';
-                  // Xóa tham chiếu sau khi gán background xong
+                  const bgMain = document.getElementById('bg-main');
+                  const bgBlur = document.getElementById('bg-blur');
+                  if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
+                  if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
                   img.onload = null;
                   img.onerror = null;
                   currentBgImageObj = null;
@@ -733,6 +760,18 @@ app.get('/', (req, res) => {
               }
             } catch (e) {}
           }
+        }
+
+        function toggleBgFit() {
+          document.body.classList.toggle('bg-mode-cover');
+          const isCover = document.body.classList.contains('bg-mode-cover');
+          const btn = document.getElementById('bg-fit-toggle');
+          if (btn) {
+            btn.innerHTML = isCover ? '🖼️ Chế độ: Tràn Màn' : '🖼️ Chế độ: Vừa Khung (Xem Hết)';
+          }
+          try {
+            localStorage.setItem('bg_fit_mode', isCover ? 'cover' : 'contain');
+          } catch (e) {}
         }
 
         // CẬP NHẬT DỮ LIỆU REALTIME BẰNG AJAX (KHÔNG TẢI LẠI TRANG CHỐNG GIẬT LAG)
@@ -794,6 +833,10 @@ app.get('/', (req, res) => {
             toggleDashboardUI();
           }
 
+          if (localStorage.getItem('bg_fit_mode') === 'cover') {
+            toggleBgFit();
+          }
+
           rotateAnimeBg();
           setInterval(rotateAnimeBg, 90000); // Đổi ảnh mỗi 90 giây để tiết kiệm CPU/RAM
           setInterval(fetchRealtimeStatus, 5000); // Cập nhật log 5 giây 1 lần mượt mà
@@ -801,9 +844,15 @@ app.get('/', (req, res) => {
       </script>
     </head>
     <body>
+      <div id="bg-container">
+        <div id="bg-blur"></div>
+        <div id="bg-main"></div>
+      </div>
+
       <div class="header">
         <h1>KIRU ĐẸP TRAI</h1>
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button id="bg-fit-toggle" type="button" class="btn-purple" onclick="toggleBgFit()">🖼️ Chế độ: Vừa Khung (Xem Hết)</button>
           <button id="header-ui-toggle" type="button" class="btn-cyan" onclick="toggleDashboardUI()">👁️ Thu Gọn Bảng (Xem Ảnh)</button>
           <div>${statusBadge}</div>
         </div>
