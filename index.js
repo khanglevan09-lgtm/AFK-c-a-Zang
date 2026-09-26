@@ -730,14 +730,17 @@ app.get('/', (req, res) => {
       <script>
         let currentBgImageObj = null;
 
-        // Danh sách ảnh nền dự phòng Nữ Sexy 17+ Ngang HD phòng khi API lỗi mạng
+        // Danh sách ảnh nền dự phòng Anime Gái Xinh HD Khung Ngang (Width > Height)
         const FALLBACK_BGS = [
           'https://images7.alphacoders.com/133/1330909.png',
           'https://images2.alphacoders.com/131/1317426.jpeg',
           'https://images8.alphacoders.com/129/1298818.jpg',
           'https://images4.alphacoders.com/134/1340453.png',
-          'https://images5.alphacoders.com/132/1328005.jpeg'
+          'https://images5.alphacoders.com/132/1328005.jpeg',
+          'https://images6.alphacoders.com/133/1332219.png'
         ];
+
+        let fallbackIdx = 0;
 
         function applyBgImage(imgUrl) {
           const bgMain = document.getElementById('bg-main');
@@ -747,40 +750,32 @@ app.get('/', (req, res) => {
         }
 
         async function rotateAnimeBg() {
-          const tags = ['ecchi', 'oppai', 'waifu', 'maid', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
-          
-          if (currentBgImageObj) {
-            currentBgImageObj.onload = null;
-            currentBgImageObj.onerror = null;
-            currentBgImageObj = null;
-          }
+          const apis = [
+            'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=marin-kitagawa&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=uniform&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
+            'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
+            'https://nekos.best/api/v2/waifu',
+            'https://api.waifu.pics/sfw/waifu'
+          ];
 
           let success = false;
           let attempts = 0;
-          const maxAttempts = 6;
 
-          while (attempts < maxAttempts && !success) {
+          while (attempts < 5 && !success) {
             attempts++;
-            const randomTag = tags[Math.floor(Math.random() * tags.length)];
-            const apis = [
-              'https://api.waifu.im/search?included_tags=' + randomTag + '&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
-              'https://api.waifu.pics/sfw/waifu',
-              'https://nekos.best/api/v2/waifu'
-            ];
-
             const apiUrl = apis[Math.floor(Math.random() * apis.length)];
             try {
               const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 4000);
+              const timeoutId = setTimeout(() => controller.abort(), 3500);
 
               const res = await fetch(apiUrl, { signal: controller.signal });
               clearTimeout(timeoutId);
               if (!res.ok) continue;
               const data = await res.json();
-              
+
               let imgUrl = '';
               if (data && data.images && data.images[0] && data.images[0].url) {
                 imgUrl = data.images[0].url;
@@ -791,12 +786,12 @@ app.get('/', (req, res) => {
               }
 
               if (imgUrl) {
-                const isValidLandscape = await new Promise((resolve) => {
+                const isLandscape = await new Promise((resolve) => {
                   const img = new Image();
                   currentBgImageObj = img;
                   img.onload = () => {
-                    // Kiểm tra chiều ngang lớn hơn chiều dọc
-                    if (img.naturalWidth >= img.naturalHeight) {
+                    // Bắt buộc kiểm tra Chiều Ngang > Chiều Dọc
+                    if (img.naturalWidth > img.naturalHeight) {
                       resolve(true);
                     } else {
                       resolve(false);
@@ -806,7 +801,7 @@ app.get('/', (req, res) => {
                   img.src = imgUrl;
                 });
 
-                if (isValidLandscape) {
+                if (isLandscape) {
                   applyBgImage(imgUrl);
                   success = true;
                   break;
@@ -815,10 +810,9 @@ app.get('/', (req, res) => {
             } catch (e) {}
           }
 
-          // Nếu API không phản hồi hoặc lỗi, dùng ngay ảnh dự phòng chất lượng cao
           if (!success) {
-            const randomFallback = FALLBACK_BGS[Math.floor(Math.random() * FALLBACK_BGS.length)];
-            applyBgImage(randomFallback);
+            fallbackIdx = (fallbackIdx + 1) % FALLBACK_BGS.length;
+            applyBgImage(FALLBACK_BGS[fallbackIdx]);
           }
         }
 
@@ -1091,13 +1085,19 @@ app.get('/', (req, res) => {
         <div class="modal-card">
           <div class="modal-header">
             <h3 style="margin: 0; color: #f87171;">⚠️ Nhật Ký Lỗi Hệ Thống</h3>
-            <button class="modal-close" onclick="closeModal('modal-errors')">&times;</button>
+            <button type="button" class="modal-close" onclick="closeModal('modal-errors')">&times;</button>
           </div>
           <div class="error-box" style="flex: 1; height: 100%;">
             ${renderErrorLogs()}
           </div>
           <div style="margin-top: 12px; text-align: right;">
-      <div id="fab-container" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; gap: 10px;">
+            <button type="button" class="btn-cyan" onclick="closeModal('modal-errors')">Đóng Cửa Sổ</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- NÚT NỔI FAB LUÔN HIỂN THỊ -->
+      <div id="fab-container">
         <button type="button" class="fab-toggle" style="background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="rotateAnimeBg()">
           🔄 Đổi Ảnh
         </button>
