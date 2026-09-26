@@ -730,6 +730,22 @@ app.get('/', (req, res) => {
       <script>
         let currentBgImageObj = null;
 
+        // Danh sách ảnh nền dự phòng Nữ Sexy 17+ Ngang HD phòng khi API lỗi mạng
+        const FALLBACK_BGS = [
+          'https://images7.alphacoders.com/133/1330909.png',
+          'https://images2.alphacoders.com/131/1317426.jpeg',
+          'https://images8.alphacoders.com/129/1298818.jpg',
+          'https://images4.alphacoders.com/134/1340453.png',
+          'https://images5.alphacoders.com/132/1328005.jpeg'
+        ];
+
+        function applyBgImage(imgUrl) {
+          const bgMain = document.getElementById('bg-main');
+          const bgBlur = document.getElementById('bg-blur');
+          if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
+          if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
+        }
+
         async function rotateAnimeBg() {
           const tags = ['ecchi', 'oppai', 'waifu', 'maid', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
           
@@ -739,10 +755,11 @@ app.get('/', (req, res) => {
             currentBgImageObj = null;
           }
 
+          let success = false;
           let attempts = 0;
-          const maxAttempts = 10;
+          const maxAttempts = 6;
 
-          while (attempts < maxAttempts) {
+          while (attempts < maxAttempts && !success) {
             attempts++;
             const randomTag = tags[Math.floor(Math.random() * tags.length)];
             const apis = [
@@ -750,14 +767,17 @@ app.get('/', (req, res) => {
               'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
               'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
               'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
               'https://api.waifu.pics/sfw/waifu',
               'https://nekos.best/api/v2/waifu'
             ];
 
             const apiUrl = apis[Math.floor(Math.random() * apis.length)];
             try {
-              const res = await fetch(apiUrl);
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+              const res = await fetch(apiUrl, { signal: controller.signal });
+              clearTimeout(timeoutId);
               if (!res.ok) continue;
               const data = await res.json();
               
@@ -775,7 +795,8 @@ app.get('/', (req, res) => {
                   const img = new Image();
                   currentBgImageObj = img;
                   img.onload = () => {
-                    if (img.naturalWidth > img.naturalHeight) {
+                    // Kiểm tra chiều ngang lớn hơn chiều dọc
+                    if (img.naturalWidth >= img.naturalHeight) {
                       resolve(true);
                     } else {
                       resolve(false);
@@ -786,14 +807,18 @@ app.get('/', (req, res) => {
                 });
 
                 if (isValidLandscape) {
-                  const bgMain = document.getElementById('bg-main');
-                  const bgBlur = document.getElementById('bg-blur');
-                  if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
-                  if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
+                  applyBgImage(imgUrl);
+                  success = true;
                   break;
                 }
               }
             } catch (e) {}
+          }
+
+          // Nếu API không phản hồi hoặc lỗi, dùng ngay ảnh dự phòng chất lượng cao
+          if (!success) {
+            const randomFallback = FALLBACK_BGS[Math.floor(Math.random() * FALLBACK_BGS.length)];
+            applyBgImage(randomFallback);
           }
         }
 
@@ -860,6 +885,10 @@ app.get('/', (req, res) => {
         }
 
         window.addEventListener('DOMContentLoaded', () => {
+          // Set ngay 1 ảnh nền mặc định để tuyệt đối không bị đen màn hình
+          const initialFallback = FALLBACK_BGS[Math.floor(Math.random() * FALLBACK_BGS.length)];
+          applyBgImage(initialFallback);
+
           if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
             toggleDashboardUI();
           }
@@ -883,6 +912,7 @@ app.get('/', (req, res) => {
       <div class="header">
         <h1>KIRU ĐẸP TRAI</h1>
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button type="button" class="btn-warning" onclick="rotateAnimeBg()">🔄 Đổi Ảnh Khác</button>
           <button id="bg-fit-toggle" type="button" class="btn-purple" onclick="toggleBgFit()">🖼️ Chế độ: Vừa Khung (Xem Hết)</button>
           <button id="header-ui-toggle" type="button" class="btn-cyan" onclick="toggleDashboardUI()">👁️ Thu Gọn Bảng (Xem Ảnh)</button>
           <div>${statusBadge}</div>
@@ -1067,14 +1097,14 @@ app.get('/', (req, res) => {
             ${renderErrorLogs()}
           </div>
           <div style="margin-top: 12px; text-align: right;">
-            <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning">Xóa Nhật Ký Lỗi</button></a>
-          </div>
-        </div>
+      <div id="fab-container" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; gap: 10px;">
+        <button type="button" class="fab-toggle" style="background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="rotateAnimeBg()">
+          🔄 Đổi Ảnh
+        </button>
+        <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
+          👁️ Thu Gọn Bảng (Xem Ảnh)
+        </button>
       </div>
-
-      <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
-        👁️ Thu Gọn Bảng (Xem Ảnh)
-      </button>
     </body>
     </html>
   `);
