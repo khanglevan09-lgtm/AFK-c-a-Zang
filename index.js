@@ -117,6 +117,7 @@ function addBotMentionLog(msg) {
     time: getVNTime(),
     text: msg
   });
+  if (botMentionLogs.length > 30) botMentionLogs.pop();
 }
 
 // Xử lý đọc chính xác tên vật phẩm từ Minecraft NBT / Display Name
@@ -181,6 +182,38 @@ function safeChat(msg) {
 }
 
 app.get('/api/ping', (req, res) => res.send('PONG_OK'));
+
+// API TRẢ VỀ DỮ LIỆU REALTIME CẬP NHẬT GIAO DIỆN KHÔNG CẦN F5 TRANG
+app.get('/api/status', (req, res) => {
+  const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
+  const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+  const currentWeapon = (bot && bot.heldItem) ? getExactItemName(bot.heldItem) : 'Tay không';
+  
+  let statusBadge = '<span class="badge-off">OFFLINE</span>';
+  if (isManualStopped) {
+    statusBadge = '<span class="badge-pause">ĐÃ TẮT THỦ CÔNG (NHƯỜNG NICK)</span>';
+  } else if (bot && bot._client && bot._client.state === 'play') {
+    statusBadge = '<span class="badge-on">ONLINE</span>';
+  } else {
+    statusBadge = `<span class="badge-off">RECONNECTING (${Math.round(currentReconnectDelay / 1000)}s)</span>`;
+  }
+
+  res.json({
+    statusBadge,
+    botUsername: BOT_USERNAME,
+    botHost: BOT_HOST,
+    botPort: BOT_PORT,
+    currentPing,
+    currentCoords,
+    currentWeapon,
+    uptimeMinutes,
+    memoryUsage,
+    serverChatLogs,
+    errorLogs,
+    pingLogs,
+    botMentionLogs
+  });
+});
 
 // ENDPOINT CẬP NHẬT CẤU HÌNH TỰ ĐỘNG (SỬA LỖI 502 RENDER)
 app.post('/api/update-config', (req, res) => {
@@ -323,8 +356,11 @@ app.get('/api/clear-mention-log', (req, res) => {
 });
 
 app.get('/api/hard-restart', (req, res) => {
-  addErrorLog('HỆ THỐNG', 'Khởi động lại tiến trình Node.js...');
-  process.exit(1); 
+  addErrorLog('HỆ THỐNG', 'Dọn dẹp bộ nhớ và kết nối lại Bot...');
+  cleanupBot();
+  consecutiveFailures = 0;
+  createBot();
+  res.redirect('/'); 
 });
 
 app.get('/', (req, res) => {
@@ -392,6 +428,44 @@ app.get('/', (req, res) => {
           backdrop-filter: blur(6px);
           -webkit-backdrop-filter: blur(6px);
           z-index: -1;
+          transition: all 0.3s ease;
+        }
+
+        /* TRẠNG THÁI ẨN GIAO DIỆN ĐỂ NẮM TRỌN HÌNH NỀN ANIME */
+        body.ui-hidden::before {
+          background: rgba(0, 0, 0, 0.02);
+          backdrop-filter: blur(0px);
+          -webkit-backdrop-filter: blur(0px);
+        }
+
+        body.ui-hidden .container,
+        body.ui-hidden .header {
+          display: none !important;
+        }
+
+        /* NÚT NỔI FAB ĐỔI TRẠNG THÁI BẢNG */
+        .fab-toggle {
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          z-index: 9999;
+          padding: 12px 22px;
+          border-radius: 30px;
+          font-weight: 700;
+          font-size: 0.95rem;
+          cursor: pointer;
+          background: linear-gradient(135deg, #0ea5e9, #a855f7);
+          color: #ffffff;
+          border: 2px solid rgba(255, 255, 255, 0.7);
+          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.7), 0 0 15px rgba(56, 189, 248, 0.5);
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .fab-toggle:hover {
+          transform: scale(1.08);
+          box-shadow: 0 10px 30px rgba(56, 189, 248, 0.9);
         }
 
         .header {
@@ -615,17 +689,22 @@ app.get('/', (req, res) => {
         }
       </style>
       <script>
-        setInterval(() => { 
-          const activeEl = document.activeElement;
-          if (!activeEl || activeEl.tagName !== 'INPUT') { location.reload(); }
-        }, 5000);
+        // DỌN DẸP BỘ NHỚ ẢNH CŨ KHI TẢI TẢI ẢNH MỚI (CHỐNG MEMORY LEAK)
+        let currentBgImageObj = null;
 
-        // TỰ ĐỘNG LẤY ẢNH GÁI XINH ANIME LÀM NỀN TỪ MẠNG (TỰ ĐỔI MỖI 45 GIÂY)
         async function rotateAnimeBg() {
           const apis = [
             'https://api.waifu.pics/sfw/waifu',
             'https://nekos.best/api/v2/neko'
           ];
+
+          // Giải phóng đối tượng ảnh cũ nếu tồn tại
+          if (currentBgImageObj) {
+            currentBgImageObj.onload = null;
+            currentBgImageObj.onerror = null;
+            currentBgImageObj = null;
+          }
+
           for (let api of apis) {
             try {
               const res = await fetch(api);
@@ -636,14 +715,53 @@ app.get('/', (req, res) => {
 
               if (imgUrl) {
                 const img = new Image();
-                img.src = imgUrl;
+                currentBgImageObj = img;
                 img.onload = () => {
                   document.body.style.backgroundImage = 'url("' + imgUrl + '")';
+                  // Xóa tham chiếu sau khi gán background xong
+                  img.onload = null;
+                  img.onerror = null;
+                  currentBgImageObj = null;
                 };
+                img.onerror = () => {
+                  img.onload = null;
+                  img.onerror = null;
+                  currentBgImageObj = null;
+                };
+                img.src = imgUrl;
                 break;
               }
             } catch (e) {}
           }
+        }
+
+        // CẬP NHẬT DỮ LIỆU REALTIME BẰNG AJAX (KHÔNG TẢI LẠI TRANG CHỐNG GIẬT LAG)
+        async function fetchRealtimeStatus() {
+          const activeEl = document.activeElement;
+          if (activeEl && activeEl.tagName === 'INPUT') return; // Không update khi người dùng đang gõ phím
+
+          try {
+            const res = await fetch('/api/status');
+            if (!res.ok) return;
+            const data = await res.json();
+
+            // Cập nhật các khung chat và logs nhẹ nhàng
+            const chatBoxes = document.querySelectorAll('.chat-box');
+            chatBoxes.forEach(box => {
+              if (data.serverChatLogs && data.serverChatLogs.length > 0) {
+                box.innerHTML = data.serverChatLogs.map(l => '<div>' + l + '</div>').join('');
+              }
+            });
+
+            const errorBoxes = document.querySelectorAll('.error-box');
+            errorBoxes.forEach(box => {
+              if (data.errorLogs && data.errorLogs.length > 0) {
+                box.innerHTML = data.errorLogs.map(e => '<div>[' + e.time + '] <b>[' + e.type + ']</b>:' + e.details + '</div>').join('');
+              } else {
+                box.innerHTML = '<div style="color:var(--accent-green);">Không có lỗi!</div>';
+              }
+            });
+          } catch (e) {}
         }
 
         function openModal(id) {
@@ -654,16 +772,41 @@ app.get('/', (req, res) => {
           document.getElementById(id).style.display = 'none';
         }
 
+        // HÀM BẬT/TẮT THU GỌN BẢNG CONTROL ĐỂ XEM ANIME BACKGROUND
+        function toggleDashboardUI() {
+          document.body.classList.toggle('ui-hidden');
+          const isHidden = document.body.classList.contains('ui-hidden');
+          const fabBtn = document.getElementById('fab-ui-toggle');
+          const headerBtn = document.getElementById('header-ui-toggle');
+          const btnText = isHidden ? '📋 Hiện Bảng Control' : '👁️ Thu Gọn Bảng (Xem Ảnh)';
+          
+          if (fabBtn) fabBtn.innerHTML = btnText;
+          if (headerBtn) headerBtn.innerHTML = btnText;
+
+          try {
+            localStorage.setItem('dashboard_ui_hidden', isHidden ? 'true' : 'false');
+          } catch (e) {}
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
+          // Lấy trạng thái lưu từ trước nếu có
+          if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
+            toggleDashboardUI();
+          }
+
           rotateAnimeBg();
-          setInterval(rotateAnimeBg, 45000); // Tự đổi ảnh nền mỗi 45 giây
+          setInterval(rotateAnimeBg, 90000); // Đổi ảnh mỗi 90 giây để tiết kiệm CPU/RAM
+          setInterval(fetchRealtimeStatus, 5000); // Cập nhật log 5 giây 1 lần mượt mà
         });
       </script>
     </head>
     <body>
       <div class="header">
         <h1>KIRU ĐẸP TRAI</h1>
-        <div>${statusBadge}</div>
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button id="header-ui-toggle" type="button" class="btn-cyan" onclick="toggleDashboardUI()">👁️ Thu Gọn Bảng (Xem Ảnh)</button>
+          <div>${statusBadge}</div>
+        </div>
       </div>
 
       <div class="container">
@@ -880,6 +1023,11 @@ app.get('/', (req, res) => {
           </div>
         </div>
       </div>
+
+      <!-- NÚT NỔI THU GỌN / MỞ BẢNG CONTROL GÓC DƯỚI -->
+      <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
+        👁️ Thu Gọn Bảng (Xem Ảnh)
+      </button>
     </body>
     </html>
   `);
@@ -978,7 +1126,7 @@ function cleanupBot() {
   currentCoords = 'Đang xác định...';
   currentPing = 0;
 
-  stopFeatureLoops(); // QUAN TRỌNG: Dừng mọi hành động spam click/skill ngay khi ngắt kết nối
+  stopFeatureLoops(); // Dừng mọi hành động spam click/skill ngay khi ngắt kết nối
 
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
@@ -991,6 +1139,11 @@ function cleanupBot() {
 
   if (bot) {
     try {
+      // GIẢI PHÓNG TOÀN BỘ EVENT LISTENERS CHỐNG MEMORY LEAK
+      bot.removeAllListeners();
+      if (bot._client) {
+        bot._client.removeAllListeners();
+      }
       bot.clearControlStates();
       bot.end(); 
     } catch (e) {}
@@ -1159,6 +1312,13 @@ function createBot() {
             }
           });
         }
+        // GIẢI PHÓNG CACHE WORLD CHUNKS CHỐNG TRÀN RAM RENDER
+        if (bot && bot.world && bot.world.columns) {
+          const columnKeys = Object.keys(bot.world.columns);
+          if (columnKeys.length > 80) {
+            bot.world.columns = {};
+          }
+        }
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
@@ -1277,11 +1437,14 @@ function handleReconnect() {
 
   consecutiveFailures++;
 
+  // KHÔNG DÙNG process.exit(1) ĐỂ BẢO VỆ WEB SERVER KHÔNG BỊ HTTP 503 RENDER
   if (consecutiveFailures >= 10) {
-    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối 10 lần. Khởi động lại App...');
-    setTimeout(() => {
-      process.exit(1);
-    }, 3000);
+    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Tạm dừng 30s trước khi thử lại...');
+    reconnectTimeout = setTimeout(() => {
+      isReconnecting = false;
+      consecutiveFailures = 0;
+      createBot();
+    }, 30000);
     return;
   }
 
@@ -1295,6 +1458,20 @@ function handleReconnect() {
 }
 
 createBot();
+
+// BỘ GIÁM SÁT BỘ NHỚ RAM AN TOÀN (KHÔNG SẤP SERVER EXPRESS, KHÔNG BỊ 503)
+setInterval(() => {
+  const heapUsed = process.memoryUsage().heapUsed / 1024 / 1024;
+  if (heapUsed > 350) {
+    console.log(`[CẢNH BÁO RAM] RAM sử dụng ${heapUsed.toFixed(1)}MB. Đang giải phóng bộ nhớ Bot...`);
+    cleanupBot();
+    setTimeout(() => {
+      if (!isManualStopped) createBot();
+    }, 3000);
+  } else if (heapUsed > 200 && global.gc) {
+    try { global.gc(); } catch (e) {}
+  }
+}, 20000);
 
 process.on('uncaughtException', (err) => {
   addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
