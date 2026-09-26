@@ -10,17 +10,15 @@ app.use(express.json());
 // ÉP MÚI GIỜ VIỆT NAM TOÀN HỆ THỐNG
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
-// --- CẤU HÌNH DỘNG ---
 let BOT_USERNAME = process.env.BOT_USERNAME || 'Kiru Đẹp Trai';
 let BOT_PASSWORD = process.env.BOT_PASSWORD || 'YourPasswordHere';
 let BOT_HOST = process.env.BOT_HOST || 'mc.example.com';
 let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 
-// --- BẬT/TẮT CÁC TÍNH NĂNG TOGGLE ---
 const toggles = {
   afkmode: false,
   thien: false,
-  quylai: false, // Sử dụng lệnh /quylay
+  quylai: false,
   dinhthan: false,
   quanghao: false,
   attackLeft: false,
@@ -28,14 +26,12 @@ const toggles = {
   skill1: false,
   skill2: false,
   skill3: false,
-  sneak: false // Nút ngồi / rón rén (Shift)
+  sneak: false
 };
 
-// Cấu hình tốc độ click chuột (tối thiểu 0.1s = 100ms)
 let attackLeftIntervalMs = 500;
 let attackRightIntervalMs = 500;
 
-// Cấu hình Chuyển Ô Vật Phẩm (Hotbar 1-9 -> Index 0-8)
 const slotConfig = {
   enabled: [false, false, false, false, false, false, false, false, false],
   holdTimeSec: 5
@@ -45,13 +41,12 @@ let currentSlotIndex = 0;
 let bot = null;
 let reconnectTimeout = null;
 let isReconnecting = false;
-let isManualStopped = false; // BẬT/TẮT BOT THỦ CÔNG
+let isManualStopped = false;
 let isFirstSpawn = true;
 
 let currentReconnectDelay = 12000;
 let consecutiveFailures = 0; 
 
-// QUẢN LÝ TIMERS & INTERVALS
 let actionTimeout = null;
 let antiAfkTimeout = null;
 let ramGcInterval = null;
@@ -63,7 +58,6 @@ let loginTimer2 = null;
 let respawnTimer = null;
 let commandResponseTimer = null;
 
-// TIMERS DÀNH CHO CÁC TÍNH NĂNG ĐỊNH KỲ
 let quylaiInterval = null;
 let attackLeftInterval = null;
 let attackRightInterval = null;
@@ -91,7 +85,7 @@ function getVNTime() {
 }
 
 function addChatLog(msg) {
-  serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
+  serverChatLogs.unshift('[' + getVNTime() + '] ' + msg);
   if (serverChatLogs.length > 80) serverChatLogs.pop();
 }
 
@@ -120,7 +114,6 @@ function addBotMentionLog(msg) {
   if (botMentionLogs.length > 30) botMentionLogs.pop();
 }
 
-// Xử lý đọc chính xác tên vật phẩm từ Minecraft NBT / Display Name
 function stripFormatting(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').trim();
@@ -161,7 +154,8 @@ function getExactItemName(item) {
   return item.displayName || item.name || 'Vật phẩm không tên';
 }
 
-function triggerChatWindow(durationMs = 8000) {
+function triggerChatWindow(durationMs) {
+  if (!durationMs) durationMs = 8000;
   isAwaitingResponse = true;
   if (commandResponseTimer) clearTimeout(commandResponseTimer);
   commandResponseTimer = setTimeout(() => {
@@ -169,21 +163,61 @@ function triggerChatWindow(durationMs = 8000) {
   }, durationMs);
 }
 
-// HÀM GỬI CHAT AN TOÀN CHỐNG KẸT
 function safeChat(msg) {
   if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
     try {
       bot.chat(msg);
-      addChatLog(`[TỰ ĐỘNG]: ${msg}`);
+      addChatLog('[TỰ ĐỘNG]: ' + msg);
     } catch (e) {
       addErrorLog('Lỗi Chat', e.message);
     }
   }
 }
 
+function renderSlotGrid() {
+  let html = '';
+  for (let i = 0; i < 9; i++) {
+    const num = i + 1;
+    const checked = slotConfig.enabled[i] ? 'checked' : '';
+    html += '<div class="slot-item">' +
+              '<div><b>Ô ' + num + '</b></div>' +
+              '<input type="checkbox" name="slot_' + i + '" ' + checked + '>' +
+            '</div>';
+  }
+  return html;
+}
+
+function renderMentionLogs() {
+  if (botMentionLogs.length === 0) {
+    return '<i>Chưa có tin nhắn nào nhắc đến ' + BOT_USERNAME + '...</i>';
+  }
+  return botMentionLogs.map(k => '<div>[' + k.time + ']' + k.text + '</div>').join('');
+}
+
+function renderPingLogs() {
+  if (pingLogs.length === 0) return 'Đang thu thập...';
+  return pingLogs.map(p => '[' + p.time + ':' + p.ping + 'ms]').join(' ➔ ');
+}
+
+function renderChatLogs() {
+  if (serverChatLogs.length === 0) return '<i>Chưa có nhật ký...</i>';
+  return serverChatLogs.map(l => '<div>' + l + '</div>').join('');
+}
+
+function renderErrorLogs() {
+  if (errorLogs.length === 0) return '<div style="color:var(--accent-green);">Không có lỗi!</div>';
+  return errorLogs.map(e => '<div>[' + e.time + '] <b>[' + e.type + ']</b>:' + e.details + '</div>').join('');
+}
+
+function renderToggleBtn(key, label) {
+  const isON = toggles[key];
+  const btnClass = isON ? 'btn-start' : 'btn-stop';
+  const statusText = isON ? 'BẬT' : 'TẮT';
+  return '<a href="/api/toggle/' + key + '" style="text-decoration: none;"><button type="button" class="' + btnClass + '" style="width: 100%;">' + label + ': ' + statusText + '</button></a>';
+}
+
 app.get('/api/ping', (req, res) => res.send('PONG_OK'));
 
-// API TRẢ VỀ DỮ LIỆU REALTIME CẬP NHẬT GIAO DIỆN KHÔNG CẦN F5 TRANG
 app.get('/api/status', (req, res) => {
   const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
@@ -195,7 +229,7 @@ app.get('/api/status', (req, res) => {
   } else if (bot && bot._client && bot._client.state === 'play') {
     statusBadge = '<span class="badge-on">ONLINE</span>';
   } else {
-    statusBadge = `<span class="badge-off">RECONNECTING (${Math.round(currentReconnectDelay / 1000)}s)</span>`;
+    statusBadge = '<span class="badge-off">RECONNECTING (' + Math.round(currentReconnectDelay / 1000) + 's)</span>';
   }
 
   res.json({
@@ -215,7 +249,6 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// ENDPOINT CẬP NHẬT CẤU HÌNH TỰ ĐỘNG (SỬA LỖI 502 RENDER)
 app.post('/api/update-config', (req, res) => {
   const { username, password, host } = req.body;
   
@@ -234,12 +267,9 @@ app.post('/api/update-config', (req, res) => {
     }
   }
 
-  addErrorLog('CẤU HÌNH', `Đã cập nhật cấu hình Bot [${BOT_USERNAME}]. Đang kết nối lại...`);
-  
-  // Trả về response thành công trước để Render không bị đứt Socket / 502 Bad Gateway
+  addErrorLog('CẤU HÌNH', 'Đã cập nhật cấu hình Bot [' + BOT_USERNAME + ']. Đang kết nối lại...');
   res.redirect('/');
 
-  // Tái kết nối asynchronously
   setImmediate(() => {
     consecutiveFailures = 0;
     isManualStopped = false;
@@ -253,23 +283,22 @@ app.post('/api/command', (req, res) => {
   if (!bot || !bot._client) return res.send('Bot đang ngoại tuyến!');
   if (cmd) {
     bot.chat(cmd);
-    addChatLog(`[WEB-ADMIN]: ${cmd}`);
+    addChatLog('[WEB-ADMIN]: ' + cmd);
     triggerChatWindow(8000);
   }
   res.redirect('/');
 });
 
-// ENDPOINT XỬ LÝ BẬT/TẮT TÍNH NĂNG TOGGLE
 app.get('/api/toggle/:feature', (req, res) => {
   const feat = req.params.feature;
   if (toggles.hasOwnProperty(feat)) {
     toggles[feat] = !toggles[feat];
-    addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
+    addChatLog('[CÀI ĐẶT] ' + feat.toUpperCase() + ' ➔ ' + (toggles[feat] ? 'BẬT' : 'TẮT'));
 
     if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
       if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
       if (feat === 'thien') safeChat('/thien');
-      if (feat === 'quylai') safeChat('/quylay'); // Lệnh đổi thành /quylay
+      if (feat === 'quylai') safeChat('/quylay');
       if (feat === 'dinhthan') safeChat('/dinhthan');
       if (feat === 'quanghao') safeChat('/quanghao');
       if (feat === 'skill1') safeChat('/kinang_1');
@@ -282,23 +311,17 @@ app.get('/api/toggle/:feature', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT SETTING TỐC ĐỘ CLICK CHUỘT
 app.post('/api/update-click-speed', (req, res) => {
   const leftSpeed = parseFloat(req.body.leftSpeed);
   const rightSpeed = parseFloat(req.body.rightSpeed);
 
-  if (!isNaN(leftSpeed) && leftSpeed >= 0.1) {
-    attackLeftIntervalMs = Math.round(leftSpeed * 1000);
-  }
-  if (!isNaN(rightSpeed) && rightSpeed >= 0.1) {
-    attackRightIntervalMs = Math.round(rightSpeed * 1000);
-  }
+  if (!isNaN(leftSpeed) && leftSpeed >= 0.1) attackLeftIntervalMs = Math.round(leftSpeed * 1000);
+  if (!isNaN(rightSpeed) && rightSpeed >= 0.1) attackRightIntervalMs = Math.round(rightSpeed * 1000);
 
   restartLoops();
   res.redirect('/');
 });
 
-// ENDPOINT SETTING CÁC Ô CÔNG CỤ (HOTBAR 1-9)
 app.post('/api/update-slots', (req, res) => {
   const holdTimeSec = parseInt(req.body.holdTimeSec);
   if (!isNaN(holdTimeSec) && holdTimeSec >= 1) {
@@ -306,14 +329,13 @@ app.post('/api/update-slots', (req, res) => {
   }
 
   for (let i = 0; i < 9; i++) {
-    slotConfig.enabled[i] = req.body[`slot_${i}`] === 'on';
+    slotConfig.enabled[i] = req.body['slot_' + i] === 'on';
   }
 
   restartLoops();
   res.redirect('/');
 });
 
-// ENDPOINT LỆNH NHANH [INV]
 app.get('/api/inventory', (req, res) => {
   if (bot && bot._client && !isManualStopped) {
     bot.chat('[inv]');
@@ -323,7 +345,6 @@ app.get('/api/inventory', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT LỆNH NHANH TỰ SÁT [/tusat]
 app.get('/api/tusat', (req, res) => {
   if (bot && bot._client && !isManualStopped) {
     safeChat('/tusat');
@@ -374,15 +395,10 @@ app.get('/', (req, res) => {
   } else if (bot && bot._client && bot._client.state === 'play') {
     statusBadge = '<span class="badge-on">ONLINE</span>';
   } else {
-    statusBadge = `<span class="badge-off">RECONNECTING (${Math.round(currentReconnectDelay / 1000)}s)</span>`;
+    statusBadge = '<span class="badge-off">RECONNECTING (' + Math.round(currentReconnectDelay / 1000) + 's)</span>';
   }
 
-  const renderToggleBtn = (key, label) => {
-    const isON = toggles[key];
-    const btnClass = isON ? 'btn-start' : 'btn-stop';
-    const statusText = isON ? 'BẬT' : 'TẮT';
-    return `<a href="/api/toggle/${key}" style="text-decoration: none;"><button type="button" class="${btnClass}" style="width: 100%;">${label}: ${statusText}</button></a>`;
-  };
+  const hostDisplay = BOT_HOST + (BOT_PORT && BOT_PORT !== 25565 ? ':' + BOT_PORT : '');
 
   res.send(`
     <!DOCTYPE html>
@@ -456,7 +472,6 @@ app.get('/', (req, res) => {
           transition: all 0.3s ease;
         }
 
-        /* TRẠNG THÁI ẨN GIAO DIỆN ĐỂ NẮM TRỌN HÌNH NỀN ANIME */
         body.ui-hidden::before {
           background: rgba(0, 0, 0, 0.02);
           backdrop-filter: blur(0px);
@@ -468,7 +483,6 @@ app.get('/', (req, res) => {
           display: none !important;
         }
 
-        /* NÚT NỔI FAB ĐỔI TRẠNG THÁI BẢNG */
         .fab-toggle {
           position: fixed;
           bottom: 20px;
@@ -714,11 +728,9 @@ app.get('/', (req, res) => {
         }
       </style>
       <script>
-        // DỌN DẸP BỘ NHỚ ẢNH CŨ KHI TẢI TẢI ẢNH MỚI (CHỐNG MEMORY LEAK)
         let currentBgImageObj = null;
 
         async function rotateAnimeBg() {
-          // TIÊU CHÍ: Nữ, xinh đẹp, sexy 17+ (ecchi/oppai/waifu), chiều ngang dài hơn chiều dọc
           const tags = ['ecchi', 'oppai', 'waifu', 'maid', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
           
           if (currentBgImageObj) {
@@ -734,13 +746,13 @@ app.get('/', (req, res) => {
             attempts++;
             const randomTag = tags[Math.floor(Math.random() * tags.length)];
             const apis = [
-              `https://api.waifu.im/search?included_tags=${randomTag}&orientation=LANDSCAPE`,
-              `https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE`,
-              `https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE`,
-              `https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE`,
-              `https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE`,
-              `https://api.waifu.pics/sfw/waifu`,
-              `https://nekos.best/api/v2/waifu`
+              'https://api.waifu.im/search?included_tags=' + randomTag + '&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
+              'https://api.waifu.pics/sfw/waifu',
+              'https://nekos.best/api/v2/waifu'
             ];
 
             const apiUrl = apis[Math.floor(Math.random() * apis.length)];
@@ -759,7 +771,6 @@ app.get('/', (req, res) => {
               }
 
               if (imgUrl) {
-                // KIỂM TRA NGHIÊM NGẶT: Chiều ngang bắt buộc lớn hơn chiều dọc
                 const isValidLandscape = await new Promise((resolve) => {
                   const img = new Image();
                   currentBgImageObj = img;
@@ -798,17 +809,15 @@ app.get('/', (req, res) => {
           } catch (e) {}
         }
 
-        // CẬP NHẬT DỮ LIỆU REALTIME BẰNG AJAX (KHÔNG TẢI LẠI TRANG CHỐNG GIẬT LAG)
         async function fetchRealtimeStatus() {
           const activeEl = document.activeElement;
-          if (activeEl && activeEl.tagName === 'INPUT') return; // Không update khi người dùng đang gõ phím
+          if (activeEl && activeEl.tagName === 'INPUT') return;
 
           try {
             const res = await fetch('/api/status');
             if (!res.ok) return;
             const data = await res.json();
 
-            // Cập nhật các khung chat và logs nhẹ nhàng
             const chatBoxes = document.querySelectorAll('.chat-box');
             chatBoxes.forEach(box => {
               if (data.serverChatLogs && data.serverChatLogs.length > 0) {
@@ -835,7 +844,6 @@ app.get('/', (req, res) => {
           document.getElementById(id).style.display = 'none';
         }
 
-        // HÀM BẬT/TẮT THU GỌN BẢNG CONTROL ĐỂ XEM ANIME BACKGROUND
         function toggleDashboardUI() {
           document.body.classList.toggle('ui-hidden');
           const isHidden = document.body.classList.contains('ui-hidden');
@@ -852,7 +860,6 @@ app.get('/', (req, res) => {
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-          // Lấy trạng thái lưu từ trước nếu có
           if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
             toggleDashboardUI();
           }
@@ -862,8 +869,8 @@ app.get('/', (req, res) => {
           }
 
           rotateAnimeBg();
-          setInterval(rotateAnimeBg, 90000); // Đổi ảnh mỗi 90 giây để tiết kiệm CPU/RAM
-          setInterval(fetchRealtimeStatus, 5000); // Cập nhật log 5 giây 1 lần mượt mà
+          setInterval(rotateAnimeBg, 90000);
+          setInterval(fetchRealtimeStatus, 5000);
         });
       </script>
     </head>
@@ -891,7 +898,7 @@ app.get('/', (req, res) => {
             <div class="status-grid">
               <div class="status-item">
                 <span class="label">Server</span>
-                <span class="value"><code>${BOT_HOST}:${BOT_PORT}</code></span>
+                <span class="value"><code>${hostDisplay}</code></span>
               </div>
               <div class="status-item">
                 <span class="label">Ping</span>
@@ -915,7 +922,6 @@ app.get('/', (req, res) => {
               </div>
             </div>
 
-            <!-- CỬA SỔ MENU POPUP: CHAT SERVER VÀ LỖI HỆ THỐNG -->
             <div class="btn-group-responsive">
               <button type="button" class="btn-cyan" onclick="openModal('modal-chat')">💬 Cửa Sổ Chat Server</button>
               <button type="button" class="btn-warning" onclick="openModal('modal-errors')">⚠️ Cửa Sổ Nhật Ký Lỗi</button>
@@ -923,18 +929,18 @@ app.get('/', (req, res) => {
 
             <div class="btn-group-responsive" style="margin-top: 10px;">
               ${isManualStopped 
-                ? `<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-start" style="width: 100%;">BẬT BOT</button></a>`
-                : `<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">TẮT BOT</button></a>`
+                ? '<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-start" style="width: 100%;">BẬT BOT</button></a>'
+                : '<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">TẮT BOT</button></a>'
               }
               <a href="/api/inventory" style="text-decoration: none;"><button type="button" class="btn-purple" style="width: 100%;">Túi Đồ [inv]</button></a>
               <a href="/api/tusat" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">Tự Sát (/tusat)</button></a>
               <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning" style="width: 100%;">Xóa Lỗi</button></a>
               <a href="/api/clear-mention-log" style="text-decoration: none;"><button type="button" class="btn-warning" style="width: 100%;">Mention (${botMentionLogs.length})</button></a>
-              <a href="/api/hard-restart" style="text-decoration: none;" onclick="return confirm('Reset toàn bộ Tiến Trình Code?');"><button type="button" class="btn-stop" style="width: 100%;">Reset App</button></a>
+              <a href="/api/hard-restart" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">Reset App</button></a>
             </div>
           </div>
 
-          <!-- Ô CÔNG CỤ TỰ ĐỘNG CHUYỂN DỔI (SLOTS 1 TO 9) -->
+          <!-- Ô CÔNG CỤ TỰ ĐỘNG CHUYỂN DỔI -->
           <div class="card">
             <h3>Cấu Hình Ô Công Cụ Bot (Ô 1 ➔ Ô 9)</h3>
             <form action="/api/update-slots" method="POST">
@@ -944,18 +950,13 @@ app.get('/', (req, res) => {
               </div>
               <label>Bật/Tắt các ô cần chuyển đổi cầm trên tay:</label>
               <div class="slot-grid">
-                ${[1,2,3,4,5,6,7,8,9].map((num, idx) => `
-                  <div class="slot-item">
-                    <div><b>Ô ${num}</b></div>
-                    <input type="checkbox" name="slot_${idx}" ${slotConfig.enabled[idx] ? 'checked' : ''}>
-                  </div>
-                `).join('')}
+                ${renderSlotGrid()}
               </div>
               <button type="submit" class="btn-save">Lưu Thiết Lập Ô Cầm</button>
             </form>
           </div>
 
-          <!-- BẬT / TẮT TÍNH NĂNG AUTO (NÚT GỌN GÀNG) -->
+          <!-- BẬT / TẮT TÍNH NĂNG AUTO -->
           <div class="card">
             <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
             <div class="btn-group-responsive">
@@ -1000,7 +1001,7 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
-          <!-- FORM DÙNG CHUNG CHO TẤT CẢ CẤU HÌNH -->
+          <!-- FORM CẤU HÌNH -->
           <form action="/api/update-config" method="POST">
             <div class="card">
               <h3>Cấu Hình Tài Khoản & Server</h3>
@@ -1016,7 +1017,7 @@ app.get('/', (req, res) => {
               </div>
               <div style="margin-top: 10px;">
                 <label>IP Server:</label>
-                <input type="text" name="host" value="${BOT_HOST}${BOT_PORT && BOT_PORT !== 25565 ? ':' + BOT_PORT : ''}" required autocomplete="off" placeholder="vangioinetwork.xyz hoặc ip:port">
+                <input type="text" name="host" value="${hostDisplay}" required autocomplete="off" placeholder="vangioinetwork.xyz hoặc ip:port">
               </div>
               <button type="submit" class="btn-save">Lưu Cấu Hình & Tái Kết Nối</button>
             </div>
@@ -1025,9 +1026,7 @@ app.get('/', (req, res) => {
           <div class="card">
             <h3>Nhật Ký Nhắc Tên [${BOT_USERNAME}]</h3>
             <div class="kiru-box">
-              ${botMentionLogs.length > 0 
-                ? botMentionLogs.map(k => `<div>[${k.time}]${k.text}</div>`).join('') 
-                : `<i>Chưa có tin nhắn nào nhắc đến ${BOT_USERNAME}...</i>`}
+              ${renderMentionLogs()}
             </div>
           </div>
         </div>
@@ -1035,12 +1034,12 @@ app.get('/', (req, res) => {
         <div>
           <div class="card">
             <h3>Lịch Sử Ping</h3>
-            <p style="word-break: break-all;"><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập...'}</code></p>
+            <p style="word-break: break-all;"><code>${renderPingLogs()}</code></p>
           </div>
         </div>
       </div>
 
-      <!-- MODAL CHAT SERVER DẠNG CỬA SỔ MENU POPUP -->
+      <!-- MODAL CHAT SERVER -->
       <div id="modal-chat" class="modal-overlay">
         <div class="modal-card">
           <div class="modal-header">
@@ -1048,7 +1047,7 @@ app.get('/', (req, res) => {
             <button class="modal-close" onclick="closeModal('modal-chat')">&times;</button>
           </div>
           <div class="chat-box" style="flex: 1; height: 100%;">
-            ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
+            ${renderChatLogs()}
           </div>
           <form class="input-group" action="/api/command" method="POST" style="margin-top: 12px;">
             <input type="text" name="command" placeholder="Nhập lệnh hoặc chat..." autocomplete="off" required>
@@ -1057,7 +1056,7 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- MODAL LỖI DẠNG CỬA SỔ MENU POPUP -->
+      <!-- MODAL LỖI -->
       <div id="modal-errors" class="modal-overlay">
         <div class="modal-card">
           <div class="modal-header">
@@ -1065,7 +1064,7 @@ app.get('/', (req, res) => {
             <button class="modal-close" onclick="closeModal('modal-errors')">&times;</button>
           </div>
           <div class="error-box" style="flex: 1; height: 100%;">
-            ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
+            ${renderErrorLogs()}
           </div>
           <div style="margin-top: 12px; text-align: right;">
             <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning">Xóa Nhật Ký Lỗi</button></a>
@@ -1073,7 +1072,6 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- NÚT NỔI THU GỌN / MỞ BẢNG CONTROL GÓC DƯỚI -->
       <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
         👁️ Thu Gọn Bảng (Xem Ảnh)
       </button>
@@ -1082,7 +1080,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-app.listen(port, () => console.log(`[HTTP SERVER] Running on port ${port}`));
+app.listen(port, () => console.log('[HTTP SERVER] Running on port ' + port));
 
 function stopFeatureLoops() {
   if (quylaiInterval) { clearInterval(quylaiInterval); quylaiInterval = null; }
@@ -1096,17 +1094,14 @@ function stopFeatureLoops() {
 function restartLoops() {
   stopFeatureLoops();
 
-  // Kiểm tra chặt chẽ xem bot có tồn tại trong game hay không
   if (!bot || !bot.entity || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
 
-  // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT (/quylay)
   if (toggles.quylai) {
     quylaiInterval = setInterval(() => {
       if (toggles.quylai) safeChat('/quylay');
     }, 47000);
   }
 
-  // 2. Click Chuột Trái liên tục (CÓ BẢO VỆ CHỐNG CRASH)
   if (toggles.attackLeft) {
     attackLeftInterval = setInterval(() => {
       if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
@@ -1115,7 +1110,6 @@ function restartLoops() {
     }, attackLeftIntervalMs);
   }
 
-  // 3. Click Chuột Phải liên tục (CÓ BẢO VỆ CHỐNG CRASH)
   if (toggles.attackRight) {
     attackRightInterval = setInterval(() => {
       if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
@@ -1124,7 +1118,6 @@ function restartLoops() {
     }, attackRightIntervalMs);
   }
 
-  // 4. Lặp lại Skill 1, 2, 3 mỗi 10s khi công tắc đang BẬT
   if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
     skillLoopInterval = setInterval(() => {
       if (bot && bot.entity && bot._client && !isManualStopped) {
@@ -1135,7 +1128,6 @@ function restartLoops() {
     }, 10000);
   }
 
-  // 5. Nút Ngồi / đi rón rén (Shift) - vòng lặp 5s 1 lần khi bật
   if (toggles.sneak) {
     let isSneaking = false;
     sneakLoopInterval = setInterval(() => {
@@ -1148,7 +1140,6 @@ function restartLoops() {
     }, 5000);
   }
 
-  // 6. Tự động chuyển đổi các Ô Thanh Công Cụ (Slots 1 - 9)
   const enabledSlots = slotConfig.enabled
     .map((enabled, index) => enabled ? index : null)
     .filter(idx => idx !== null);
@@ -1175,7 +1166,7 @@ function cleanupBot() {
   currentCoords = 'Đang xác định...';
   currentPing = 0;
 
-  stopFeatureLoops(); // Dừng mọi hành động spam click/skill ngay khi ngắt kết nối
+  stopFeatureLoops();
 
   if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
   if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
@@ -1188,7 +1179,6 @@ function cleanupBot() {
 
   if (bot) {
     try {
-      // GIẢI PHÓNG TOÀN BỘ EVENT LISTENERS CHỐNG MEMORY LEAK
       bot.removeAllListeners();
       if (bot._client) {
         bot._client.removeAllListeners();
@@ -1306,7 +1296,7 @@ function createBot() {
     viewDistance: 'tiny'
   };
 
-  console.log(`\n[HỆ THỐNG] Kết nối đến ${currentOptions.host}:${currentOptions.port} với tên [${BOT_USERNAME}]...`);
+  console.log('[HỆ THỐNG] Kết nối đến ' + currentOptions.host + ':' + currentOptions.port + ' với tên [' + BOT_USERNAME + ']...');
 
   try {
     bot = mineflayer.createBot(currentOptions);
@@ -1336,7 +1326,7 @@ function createBot() {
 
       loginTimer1 = setTimeout(() => {
         if (bot && bot._client && !isManualStopped) {
-          bot.chat(`/l ${BOT_PASSWORD}`);
+          bot.chat('/l ' + BOT_PASSWORD);
           triggerChatWindow(4000);
         }
       }, 3500);
@@ -1361,7 +1351,6 @@ function createBot() {
             }
           });
         }
-        // GIẢI PHÓNG CACHE WORLD CHUNKS CHỐNG TRÀN RAM RENDER
         if (bot && bot.world && bot.world.columns) {
           const columnKeys = Object.keys(bot.world.columns);
           if (columnKeys.length > 80) {
@@ -1383,7 +1372,7 @@ function createBot() {
       posCheckInterval = setInterval(() => {
         if (bot && bot.entity && bot.entity.position) {
           const pos = bot.entity.position;
-          currentCoords = `x: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
+          currentCoords = 'x: ' + pos.x.toFixed(1) + ', Y: ' + pos.y.toFixed(1) + ', Z: ' + pos.z.toFixed(1);
         }
       }, 5000);
 
@@ -1455,10 +1444,9 @@ function createBot() {
     } catch (e) {}
   });
 
-  // Hủy toàn bộ loops ngay khi bị văng
   bot.on('end', (reason) => {
     stopFeatureLoops();
-    addErrorLog('Mất Kết Nối (End)', `Server ngắt socket: ${reason}`);
+    addErrorLog('Mất Kết Nối (End)', 'Server ngắt socket: ' + reason);
     handleReconnect();
   });
 
@@ -1486,7 +1474,6 @@ function handleReconnect() {
 
   consecutiveFailures++;
 
-  // KHÔNG DÙNG process.exit(1) ĐỂ BẢO VỆ WEB SERVER KHÔNG BỊ HTTP 503 RENDER
   if (consecutiveFailures >= 10) {
     addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối nhiều lần. Tạm dừng 30s trước khi thử lại...');
     reconnectTimeout = setTimeout(() => {
@@ -1497,7 +1484,7 @@ function handleReconnect() {
     return;
   }
 
-  console.log(`Chờ ${currentReconnectDelay / 1000}s để tái kết nối...`);
+  console.log('Chờ ' + (currentReconnectDelay / 1000) + 's để tái kết nối...');
   
   reconnectTimeout = setTimeout(() => {
     isReconnecting = false;
@@ -1508,11 +1495,10 @@ function handleReconnect() {
 
 createBot();
 
-// BỘ GIÁM SÁT BỘ NHỚ RAM AN TOÀN (KHÔNG SẤP SERVER EXPRESS, KHÔNG BỊ 503)
 setInterval(() => {
   const heapUsed = process.memoryUsage().heapUsed / 1024 / 1024;
   if (heapUsed > 350) {
-    console.log(`[CẢNH BÁO RAM] RAM sử dụng ${heapUsed.toFixed(1)}MB. Đang giải phóng bộ nhớ Bot...`);
+    console.log('[CẢNH BÁO RAM] RAM sử dụng ' + heapUsed.toFixed(1) + 'MB. Đang giải phóng bộ nhớ Bot...');
     cleanupBot();
     setTimeout(() => {
       if (!isManualStopped) createBot();
@@ -1523,7 +1509,7 @@ setInterval(() => {
 }, 20000);
 
 process.on('uncaughtException', (err) => {
-  addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
+  addErrorLog('Uncaught Exception', err.message + ' (' + (err.code || 'NO_CODE') + ')');
   try { handleReconnect(); } catch(e) {}
 });
 
