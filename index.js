@@ -718,9 +718,9 @@ app.get('/', (req, res) => {
         let currentBgImageObj = null;
 
         async function rotateAnimeBg() {
-          const tags = ['waifu', 'maid', 'oppai', 'ecchi', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
+          // TIÊU CHÍ: Nữ, xinh đẹp, sexy 17+ (ecchi/oppai/waifu), chiều ngang dài hơn chiều dọc
+          const tags = ['ecchi', 'oppai', 'waifu', 'maid', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
           
-          // Giải phóng đối tượng ảnh cũ nếu tồn tại
           if (currentBgImageObj) {
             currentBgImageObj.onload = null;
             currentBgImageObj.onerror = null;
@@ -728,19 +728,19 @@ app.get('/', (req, res) => {
           }
 
           let attempts = 0;
-          const maxAttempts = 8;
+          const maxAttempts = 10;
 
           while (attempts < maxAttempts) {
             attempts++;
             const randomTag = tags[Math.floor(Math.random() * tags.length)];
             const apis = [
               `https://api.waifu.im/search?included_tags=${randomTag}&orientation=LANDSCAPE`,
-              'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
-              'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
-              'https://api.waifu.pics/sfw/waifu',
-              'https://nekos.best/api/v2/neko',
-              'https://nekos.best/api/v2/waifu'
+              `https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE`,
+              `https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE`,
+              `https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE`,
+              `https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE`,
+              `https://api.waifu.pics/sfw/waifu`,
+              `https://nekos.best/api/v2/waifu`
             ];
 
             const apiUrl = apis[Math.floor(Math.random() * apis.length)];
@@ -759,16 +759,15 @@ app.get('/', (req, res) => {
               }
 
               if (imgUrl) {
-                // TIÊU CHÍ: Bắt buộc ảnh nằm ngang (Chiều ngang > Chiều dọc)
+                // KIỂM TRA NGHIÊM NGẶT: Chiều ngang bắt buộc lớn hơn chiều dọc
                 const isValidLandscape = await new Promise((resolve) => {
                   const img = new Image();
                   currentBgImageObj = img;
                   img.onload = () => {
-                    // Kiểm tra chiều ngang phải lớn hơn chiều dọc
                     if (img.naturalWidth > img.naturalHeight) {
                       resolve(true);
                     } else {
-                      resolve(false); // Bỏ qua ảnh dọc
+                      resolve(false);
                     }
                   };
                   img.onerror = () => resolve(false);
@@ -780,7 +779,7 @@ app.get('/', (req, res) => {
                   const bgBlur = document.getElementById('bg-blur');
                   if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
                   if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
-                  break; // Tìm thấy ảnh thỏa mãn tiêu chí -> Dừng thử tiếp
+                  break;
                 }
               }
             } catch (e) {}
@@ -916,18 +915,13 @@ app.get('/', (req, res) => {
               </div>
             </div>
 
-            <!-- CỬA SỔ MENU CHO CÁC MỤC CHAT SERVER VÀ LỖI HỆ THỐNG -->
+            <!-- CỬA SỔ MENU POPUP: CHAT SERVER VÀ LỖI HỆ THỐNG -->
             <div class="btn-group-responsive">
               <button type="button" class="btn-cyan" onclick="openModal('modal-chat')">💬 Cửa Sổ Chat Server</button>
               <button type="button" class="btn-warning" onclick="openModal('modal-errors')">⚠️ Cửa Sổ Nhật Ký Lỗi</button>
             </div>
 
-            <form class="input-group" action="/api/command" method="POST">
-              <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc chat vào server..." autocomplete="off" required>
-              <button type="submit">Gửi Chat</button>
-            </form>
-
-            <div class="btn-group-responsive">
+            <div class="btn-group-responsive" style="margin-top: 10px;">
               ${isManualStopped 
                 ? `<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-start" style="width: 100%;">BẬT BOT</button></a>`
                 : `<a href="/api/toggle-bot" style="text-decoration: none;"><button type="button" class="btn-stop" style="width: 100%;">TẮT BOT</button></a>`
@@ -1042,25 +1036,6 @@ app.get('/', (req, res) => {
           <div class="card">
             <h3>Lịch Sử Ping</h3>
             <p style="word-break: break-all;"><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập...'}</code></p>
-          </div>
-
-          <!-- CHAT SERVER REALTIME PANEL GIÚP QUAN SÁT VÀ CHAT TRỰC TIẾP -->
-          <div class="card">
-            <h3>Chat Server (24/24)</h3>
-            <div class="chat-box" style="height: 380px;">
-              ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
-            </div>
-            <form class="input-group" action="/api/command" method="POST" style="margin-top: 10px;">
-              <input type="text" name="command" placeholder="Nhập tin nhắn..." autocomplete="off" required>
-              <button type="submit">Gửi</button>
-            </form>
-          </div>
-
-          <div class="card">
-            <h3>Nhật Ký Lỗi Phát Sinh</h3>
-            <div class="error-box">
-              ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
-            </div>
           </div>
         </div>
       </div>
