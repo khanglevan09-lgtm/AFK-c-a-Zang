@@ -116,7 +116,7 @@ function addBotMentionLog(msg) {
 
 function stripFormatting(str) {
   if (typeof str !== 'string') return '';
-  return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').trim();
+  return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').replace(/\u001b\[[0-9;]*m/g, '').trim();
 }
 
 function getExactItemName(item) {
@@ -278,15 +278,40 @@ app.post('/api/update-config', (req, res) => {
 });
 
 app.post('/api/command', (req, res) => {
-  if (isManualStopped) return res.send('Bot đang ở trạng thái TẮT thủ công!');
-  const cmd = req.body.command;
-  if (!bot || !bot._client) return res.send('Bot đang ngoại tuyến!');
-  if (cmd) {
-    bot.chat(cmd);
-    addChatLog('[WEB-ADMIN]: ' + cmd);
-    triggerChatWindow(8000);
+  try {
+    const isAjax = req.xhr || (req.headers.accept && req.headers.accept.includes('json')) || (req.headers['content-type'] && req.headers['content-type'].includes('json'));
+
+    if (isManualStopped) {
+      if (isAjax) return res.status(400).json({ success: false, message: 'Bot đang ở trạng thái TẮT thủ công!' });
+      return res.send('Bot đang ở trạng thái TẮT thủ công!');
+    }
+    
+    const cmd = req.body ? req.body.command : null;
+    if (!bot || !bot._client || bot._client.state !== 'play') {
+      if (isAjax) return res.status(400).json({ success: false, message: 'Bot đang ngoại tuyến!' });
+      return res.send('Bot đang ngoại tuyến!');
+    }
+
+    if (cmd && typeof cmd === 'string') {
+      const cleanCmd = cmd.trim();
+      if (cleanCmd) {
+        bot.chat(cleanCmd);
+        addChatLog('[WEB-ADMIN]: ' + cleanCmd);
+        triggerChatWindow(8000);
+      }
+    }
+
+    if (isAjax) {
+      return res.json({ success: true, logs: serverChatLogs });
+    }
+    res.redirect('/');
+  } catch (err) {
+    addErrorLog('Lỗi gửi lệnh', err.message || String(err));
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('json')) || (req.headers['content-type'] && req.headers['content-type'].includes('json'))) {
+      return res.status(500).json({ success: false, message: 'Lỗi server: ' + (err.message || 'Không xác định') });
+    }
+    res.redirect('/');
   }
-  res.redirect('/');
 });
 
 app.get('/api/toggle/:feature', (req, res) => {
@@ -913,7 +938,6 @@ app.get('/', (req, res) => {
 
         async function fetchRealtimeStatus() {
           const activeEl = document.activeElement;
-          if (activeEl && activeEl.tagName === 'INPUT') return;
 
           try {
             const res = await fetch('/api/status');
@@ -923,19 +947,57 @@ app.get('/', (req, res) => {
             const chatBoxes = document.querySelectorAll('.chat-box');
             chatBoxes.forEach(box => {
               if (data.serverChatLogs && data.serverChatLogs.length > 0) {
-                box.innerHTML = data.serverChatLogs.map(l => '<div>' + l + '</div>').join('');
+                const newHtml = data.serverChatLogs.map(l => '<div>' + l + '</div>').join('');
+                if (box.innerHTML !== newHtml) {
+                  box.innerHTML = newHtml;
+                }
+              } else {
+                box.innerHTML = '<i>Chưa có nhật ký...</i>';
               }
             });
 
             const errorBoxes = document.querySelectorAll('.error-box');
             errorBoxes.forEach(box => {
               if (data.errorLogs && data.errorLogs.length > 0) {
-                box.innerHTML = data.errorLogs.map(e => '<div>[' + e.time + '] <b>[' + e.type + ']</b>:' + e.details + '</div>').join('');
+                const newHtml = data.errorLogs.map(e => '<div>[' + e.time + '] <b>[' + e.type + ']</b>:' + e.details + '</div>').join('');
+                if (box.innerHTML !== newHtml) {
+                  box.innerHTML = newHtml;
+                }
               } else {
                 box.innerHTML = '<div style="color:var(--accent-green);">Không có lỗi!</div>';
               }
             });
           } catch (e) {}
+        }
+
+        async function sendChatCommand(event) {
+          if (event) event.preventDefault();
+          const input = document.getElementById('chat-input');
+          if (!input) return;
+          const command = input.value.trim();
+          if (!command) return;
+
+          try {
+            const res = await fetch('/api/command', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify({ command: command })
+            });
+
+            input.value = '';
+
+            if (res.ok) {
+              fetchRealtimeStatus();
+            } else {
+              const errData = await res.json().catch(() => ({ message: 'Không thể gửi lệnh!' }));
+              alert(errData.message || 'Lỗi gửi lệnh');
+            }
+          } catch (e) {
+            console.error('Lỗi kết nối gửi chat:', e);
+          }
         }
 
         function openModal(id) {
@@ -957,7 +1019,7 @@ app.get('/', (req, res) => {
 
           // THỜI GIAN ĐỔI ẢNH MỚI: DÚNG 20 GIÂY / 1 ẢNH (20000 ms)
           setInterval(displayNextImage, 20000);
-          setInterval(fetchRealtimeStatus, 5000);
+          setInterval(fetchRealtimeStatus, 1500);
         });
       </script>
     </head>
@@ -1136,8 +1198,8 @@ app.get('/', (req, res) => {
           <div class="chat-box" style="flex: 1; height: 100%;">
             ${renderChatLogs()}
           </div>
-          <form class="input-group" action="/api/command" method="POST" style="margin-top: 12px;">
-            <input type="text" name="command" placeholder="Nhập lệnh hoặc chat..." autocomplete="off" required>
+          <form id="chat-form" class="input-group" onsubmit="sendChatCommand(event)" action="/api/command" method="POST" style="margin-top: 12px;">
+            <input type="text" id="chat-input" name="command" placeholder="Nhập lệnh hoặc chat..." autocomplete="off" required>
             <button type="submit">Gửi Ngay</button>
           </form>
         </div>
@@ -1505,6 +1567,56 @@ function createBot() {
       }, 15000);
     }
   });
+
+  let lastReceivedMsg = '';
+  let lastReceivedTime = 0;
+
+  const handleIncomingMessage = (rawMsg) => {
+    try {
+      let text = '';
+      if (typeof rawMsg === 'string') {
+        text = rawMsg;
+      } else if (rawMsg && typeof rawMsg.toString === 'function') {
+        text = rawMsg.toString();
+      }
+
+      text = stripFormatting(text).trim();
+      if (!text) return;
+
+      const now = Date.now();
+      if (text === lastReceivedMsg && (now - lastReceivedTime) < 300) {
+        return;
+      }
+      lastReceivedMsg = text;
+      lastReceivedTime = now;
+
+      const lowerText = text.toLowerCase();
+      const botNameLower = BOT_USERNAME.toLowerCase();
+
+      if (lowerText.includes(botNameLower)) {
+        addBotMentionLog(text);
+      }
+
+      if (
+        text.includes('█') || 
+        lowerText.includes('hồi chiêu') || 
+        lowerText.includes('ʜồi ᴄʜɪêᴜ') || 
+        lowerText.includes('cooldown')
+      ) {
+        return;
+      }
+
+      addChatLog(text);
+      console.log('[CHAT]: ' + text);
+
+    } catch (e) {
+      addErrorLog('Lỗi đọc chat', e.message || String(e));
+    }
+  };
+
+  bot.on('message', (msg) => handleIncomingMessage(msg));
+  bot.on('messagestr', (msgStr) => handleIncomingMessage(msgStr));
+  bot.on('systemChat', (sysMsg) => handleIncomingMessage(sysMsg));
 
   bot.on('death', () => {
     addChatLog('Bot tử vong! Chờ hồi sinh...');
