@@ -718,11 +718,8 @@ app.get('/', (req, res) => {
         let currentBgImageObj = null;
 
         async function rotateAnimeBg() {
-          const apis = [
-            'https://api.waifu.pics/sfw/waifu',
-            'https://nekos.best/api/v2/neko'
-          ];
-
+          const tags = ['waifu', 'maid', 'oppai', 'ecchi', 'uniform', 'marin-kitagawa', 'mori-calliope', 'raiden-shogun'];
+          
           // Giải phóng đối tượng ảnh cũ nếu tồn tại
           if (currentBgImageObj) {
             currentBgImageObj.onload = null;
@@ -730,33 +727,61 @@ app.get('/', (req, res) => {
             currentBgImageObj = null;
           }
 
-          for (let api of apis) {
+          let attempts = 0;
+          const maxAttempts = 8;
+
+          while (attempts < maxAttempts) {
+            attempts++;
+            const randomTag = tags[Math.floor(Math.random() * tags.length)];
+            const apis = [
+              `https://api.waifu.im/search?included_tags=${randomTag}&orientation=LANDSCAPE`,
+              'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=ecchi&orientation=LANDSCAPE',
+              'https://api.waifu.im/search?included_tags=oppai&orientation=LANDSCAPE',
+              'https://api.waifu.pics/sfw/waifu',
+              'https://nekos.best/api/v2/neko',
+              'https://nekos.best/api/v2/waifu'
+            ];
+
+            const apiUrl = apis[Math.floor(Math.random() * apis.length)];
             try {
-              const res = await fetch(api);
+              const res = await fetch(apiUrl);
+              if (!res.ok) continue;
               const data = await res.json();
+              
               let imgUrl = '';
-              if (data && data.url) imgUrl = data.url;
-              else if (data && data.results && data.results[0] && data.results[0].url) imgUrl = data.results[0].url;
+              if (data && data.images && data.images[0] && data.images[0].url) {
+                imgUrl = data.images[0].url;
+              } else if (data && data.url) {
+                imgUrl = data.url;
+              } else if (data && data.results && data.results[0] && data.results[0].url) {
+                imgUrl = data.results[0].url;
+              }
 
               if (imgUrl) {
-                const img = new Image();
-                currentBgImageObj = img;
-                img.onload = () => {
+                // TIÊU CHÍ: Bắt buộc ảnh nằm ngang (Chiều ngang > Chiều dọc)
+                const isValidLandscape = await new Promise((resolve) => {
+                  const img = new Image();
+                  currentBgImageObj = img;
+                  img.onload = () => {
+                    // Kiểm tra chiều ngang phải lớn hơn chiều dọc
+                    if (img.naturalWidth > img.naturalHeight) {
+                      resolve(true);
+                    } else {
+                      resolve(false); // Bỏ qua ảnh dọc
+                    }
+                  };
+                  img.onerror = () => resolve(false);
+                  img.src = imgUrl;
+                });
+
+                if (isValidLandscape) {
                   const bgMain = document.getElementById('bg-main');
                   const bgBlur = document.getElementById('bg-blur');
                   if (bgMain) bgMain.style.backgroundImage = 'url("' + imgUrl + '")';
                   if (bgBlur) bgBlur.style.backgroundImage = 'url("' + imgUrl + '")';
-                  img.onload = null;
-                  img.onerror = null;
-                  currentBgImageObj = null;
-                };
-                img.onerror = () => {
-                  img.onload = null;
-                  img.onerror = null;
-                  currentBgImageObj = null;
-                };
-                img.src = imgUrl;
-                break;
+                  break; // Tìm thấy ảnh thỏa mãn tiêu chí -> Dừng thử tiếp
+                }
               }
             } catch (e) {}
           }
