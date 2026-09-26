@@ -429,6 +429,9 @@ app.get('/', (req, res) => {
           z-index: -2;
           overflow: hidden;
           background-color: #080c14;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .bg-img-blur {
@@ -445,12 +448,9 @@ app.get('/', (req, res) => {
           position: absolute;
           top: 0; left: 0;
           width: 100vw; height: 100vh;
-          object-fit: contain;
+          object-fit: contain !important; /* BẮT BUỘC TRỌN VẸN 100% BỨC ẢNH - KHÔNG CẮT XÉN */
+          object-position: center;
           transition: opacity 0.6s ease;
-        }
-
-        body.bg-mode-cover .bg-img-main {
-          object-fit: cover !important;
         }
 
         body {
@@ -736,13 +736,22 @@ app.get('/', (req, res) => {
       </style>
 
       <script>
-        // KHO ÁNH DỰ PHÒNG ANIME CHẤT LƯỢNG CAO
-        const CURATED_LANDSCAPE_BGS = [
-          'https://images.alphacoders.com/131/1318460.jpeg',
-          'https://images7.alphacoders.com/132/1325357.jpeg',
-          'https://images4.alphacoders.com/134/1344238.png',
-          'https://images5.alphacoders.com/133/1336044.png',
-          'https://images8.alphacoders.com/134/1340058.png',
+        // TẬP HỢP CÁC API ANIME NỮ / WAIFU / 17+ CHẤT LƯỢNG CAO
+        const ANIME_GIRL_APIS = [
+          'https://api.waifu.im/search?included_tags=waifu',
+          'https://api.waifu.im/search?included_tags=maid',
+          'https://api.waifu.im/search?included_tags=oppai',
+          'https://api.waifu.im/search?included_tags=uniform',
+          'https://api.waifu.im/search?included_tags=marin-kitagawa',
+          'https://api.waifu.im/search?included_tags=raiden-shogun',
+          'https://api.waifu.pics/sfw/waifu',
+          'https://api.waifu.pics/sfw/neko',
+          'https://nekos.best/api/v2/waifu',
+          'https://nekos.best/api/v2/neko'
+        ];
+
+        // KHO ẢNH DỰ PHÒNG CHUẨN ANIME NỮ ĐẸP
+        const FALLBACK_WAIFUS = [
           'https://cdn.waifu.im/7438.jpg',
           'https://cdn.waifu.im/6226.jpg',
           'https://cdn.waifu.im/7140.jpg',
@@ -752,174 +761,139 @@ app.get('/', (req, res) => {
           'https://cdn.waifu.im/7418.jpg',
           'https://cdn.waifu.im/7212.jpg',
           'https://cdn.waifu.im/7211.jpg',
-          'https://picsum.photos/1920/1080'
+          'https://cdn.waifu.im/7001.jpg',
+          'https://cdn.waifu.im/7155.jpg',
+          'https://cdn.waifu.im/7320.jpg',
+          'https://cdn.waifu.im/7610.jpg',
+          'https://cdn.waifu.im/7780.jpg',
+          'https://images6.alphacoders.com/133/1330919.png',
+          'https://images3.alphacoders.com/132/1322891.jpeg',
+          'https://images2.alphacoders.com/131/1312502.jpeg'
         ];
 
-        let currentFallbackIndex = Math.floor(Math.random() * CURATED_LANDSCAPE_BGS.length);
-        let nextPreloadedUrl = null;
-        let isPrefetching = false;
-        let isRotating = false;
+        // QUẢN LÝ BỘ NHỚ VÀ HÀNG ĐỢI (PRELOAD 2 - 3 TẤM)
+        const QUEUE_TARGET_SIZE = 3;
+        const imageQueue = []; 
+        const seenUrls = new Set();
+        let isQueueFilling = false;
 
-        function testAndPreloadLandscapeImage(url, timeoutMs = 2500) {
+        async function fetchUniqueAnimeGirlUrl() {
+          for (let attempt = 0; attempt < 6; attempt++) {
+            const api = ANIME_GIRL_APIS[Math.floor(Math.random() * ANIME_GIRL_APIS.length)];
+            try {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 2500);
+
+              const sep = api.includes('?') ? '&' : '?';
+              const randUrl = api + sep + '_r=' + Math.random().toString(36).substring(2, 8);
+
+              const response = await fetch(randUrl, { signal: controller.signal });
+              clearTimeout(timer);
+
+              if (response.ok) {
+                const data = await response.json();
+                let url = '';
+                if (data?.images?.[0]?.url) url = data.images[0].url;
+                else if (data?.results?.[0]?.url) url = data.results[0].url;
+                else if (data?.url) url = data.url;
+
+                if (url && !seenUrls.has(url)) {
+                  return url;
+                }
+              }
+            } catch (e) {}
+          }
+
+          // Lấy từ kho dự phòng chưa xem
+          for (const fbUrl of FALLBACK_WAIFUS) {
+            if (!seenUrls.has(fbUrl)) return fbUrl;
+          }
+
+          // Nếu đã xem hết sạch thì làm mới danh sách xem
+          seenUrls.clear();
+          return FALLBACK_WAIFUS[Math.floor(Math.random() * FALLBACK_WAIFUS.length)];
+        }
+
+        function preloadSingleImage(url) {
           return new Promise((resolve, reject) => {
             const img = new Image();
             img.referrerPolicy = 'no-referrer';
             
-            let timer = setTimeout(() => {
+            const timer = setTimeout(() => {
               img.src = '';
-              reject(new Error('Timeout'));
-            }, timeoutMs);
+              reject(new Error('Preload Timeout'));
+            }, 3000);
 
             img.onload = () => {
               clearTimeout(timer);
-              resolve(url);
+              resolve({ url, imgObj: img });
             };
 
             img.onerror = () => {
               clearTimeout(timer);
-              reject(new Error('Failed to load'));
+              reject(new Error('Preload Failed'));
             };
 
-            if (url && !url.startsWith('data:')) {
-              const sep = url.includes('?') ? '&' : '?';
-              img.src = url + sep + '_t=' + Date.now();
-            } else if (url) {
-              img.src = url;
-            } else {
-              clearTimeout(timer);
-              reject(new Error('Invalid URL'));
-            }
+            img.src = url;
           });
         }
 
-        async function fetchNewImageCandidate() {
-          const apiProviders = [
-            'https://api.waifu.im/search?included_tags=waifu&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=maid&orientation=LANDSCAPE',
-            'https://api.waifu.im/search?included_tags=uniform&orientation=LANDSCAPE',
-            'https://nekos.best/api/v2/waifu',
-            'https://api.waifu.pics/sfw/waifu'
-          ];
+        async function fillImageCacheQueue() {
+          if (isQueueFilling) return;
+          isQueueFilling = true;
 
-          const selectedApi = apiProviders[Math.floor(Math.random() * apiProviders.length)];
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2500);
-
-            const response = await fetch(selectedApi, { signal: controller.signal });
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-              const data = await response.json();
-              let candidateUrl = '';
-              if (data && data.images && data.images[0] && data.images[0].url) {
-                candidateUrl = data.images[0].url;
-              } else if (data && data.results && data.results[0] && data.results[0].url) {
-                candidateUrl = data.results[0].url;
-              } else if (data && data.url) {
-                candidateUrl = data.url;
+          while (imageQueue.length < QUEUE_TARGET_SIZE) {
+            try {
+              const urlCandidate = await fetchUniqueAnimeGirlUrl();
+              if (urlCandidate && !seenUrls.has(urlCandidate)) {
+                seenUrls.add(urlCandidate);
+                const loadedData = await preloadSingleImage(urlCandidate);
+                imageQueue.push(loadedData);
               }
-
-              if (candidateUrl) {
-                const verified = await testAndPreloadLandscapeImage(candidateUrl, 2500);
-                return verified;
-              }
+            } catch (e) {
+              await new Promise(r => setTimeout(r, 500));
             }
-          } catch (e) {}
-
-          // Quay vòng kho ảnh dự phòng mượt mà nếu API mạng lỗi/chậm
-          currentFallbackIndex = (currentFallbackIndex + 1) % CURATED_LANDSCAPE_BGS.length;
-          const fallbackUrl = CURATED_LANDSCAPE_BGS[currentFallbackIndex];
-          try {
-            return await testAndPreloadLandscapeImage(fallbackUrl, 2000);
-          } catch(e) {
-            return fallbackUrl + (fallbackUrl.includes('?') ? '&' : '?') + 'cb=' + Date.now();
           }
+
+          isQueueFilling = false;
         }
 
-        async function prefetchNextImage() {
-          if (isPrefetching) return;
-          isPrefetching = true;
-          try {
-            nextPreloadedUrl = await fetchNewImageCandidate();
-          } catch (e) {
-            nextPreloadedUrl = null;
-          } finally {
-            isPrefetching = false;
+        function displayNextImage() {
+          if (imageQueue.length === 0) {
+            fillImageCacheQueue();
+            return;
           }
-        }
 
-        function applyVerifiedImage(url) {
+          // RÚT VÀ XÓA ẢNH KHỎI HÀNG ĐỢI ĐỂ GIẢI PHÓNG RAM HỆ THỐNG
+          const currentItem = imageQueue.shift();
+
           const bgMain = document.getElementById('bg-main-img');
           const bgBlur = document.getElementById('bg-blur-img');
 
-          if (bgMain) bgMain.src = url;
-          if (bgBlur) bgBlur.src = url;
+          if (bgMain) bgMain.src = currentItem.url;
+          if (bgBlur) bgBlur.src = currentItem.url;
 
-          try {
-            localStorage.setItem('last_valid_anime_bg', url);
-          } catch(e) {}
-        }
-
-        async function rotateAnimeBg(isManual = false) {
-          if (isRotating) return;
-          isRotating = true;
-
-          const btnHeader = document.getElementById('btn-rotate-bg');
-          const btnFab = document.getElementById('fab-rotate-bg');
-
-          if (btnHeader) btnHeader.innerHTML = '⚡ Đang đổi ảnh...';
-          if (btnFab) btnFab.innerHTML = '⚡ Đang đổi...';
-
-          let targetUrl = null;
-
-          // Sử dụng ngay ảnh đã tải sẵn ngầm nếu có
-          if (nextPreloadedUrl) {
-            targetUrl = nextPreloadedUrl;
-            nextPreloadedUrl = null;
-          } else {
-            targetUrl = await fetchNewImageCandidate();
+          // HỦY THAM CHIẾU ĐỂ GARBAGE COLLECTOR DỌN SẠCH CPU/RAM
+          if (currentItem.imgObj) {
+            currentItem.imgObj.onload = null;
+            currentItem.imgObj.onerror = null;
+            currentItem.imgObj = null;
           }
 
-          if (targetUrl) {
-            applyVerifiedImage(targetUrl);
-          }
-
-          if (btnHeader) btnHeader.innerHTML = '🔄 Đổi Ảnh Khác';
-          if (btnFab) btnFab.innerHTML = '🔄 Đổi Ảnh';
-          
-          isRotating = false;
-
-          // Tiếp tục tải ngầm ảnh tiếp theo cho lần bấm tới
-          prefetchNextImage();
+          // TẢI BÙ VÀO HÀNG ĐỢI ĐỂ LUÔN DỰ TRỮ 2-3 TẤM BÊN DƯỚI
+          fillImageCacheQueue();
         }
 
         function setCustomBgUrl() {
           const input = document.getElementById('custom-bg-input');
           if (input && input.value.trim() !== '') {
             const url = input.value.trim();
-            testAndPreloadLandscapeImage(url, 4000)
-              .then(verified => {
-                applyVerifiedImage(verified);
-                closeModal('modal-custom-bg');
-              })
-              .catch(() => {
-                applyVerifiedImage(url);
-                closeModal('modal-custom-bg');
-              });
+            const bgMain = document.getElementById('bg-main-img');
+            const bgBlur = document.getElementById('bg-blur-img');
+            if (bgMain) bgMain.src = url;
+            if (bgBlur) bgBlur.src = url;
+            closeModal('modal-custom-bg');
           }
-        }
-
-        function toggleBgFit() {
-          document.body.classList.toggle('bg-mode-cover');
-          const isCover = document.body.classList.contains('bg-mode-cover');
-          const btn = document.getElementById('bg-fit-toggle');
-          if (btn) {
-            btn.innerHTML = isCover ? '🖼️ Chế độ: Tràn Màn' : '🖼️ Chế độ: Vừa Khung (Xem Hết)';
-          }
-          try {
-            localStorage.setItem('bg_fit_mode', isCover ? 'cover' : 'contain');
-          } catch (e) {}
         }
 
         function toggleDashboardUI() {
@@ -972,25 +946,17 @@ app.get('/', (req, res) => {
           document.getElementById(id).style.display = 'none';
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
-          let savedBg = null;
-          try { savedBg = localStorage.getItem('last_valid_anime_bg'); } catch(e) {}
-
-          const defaultInitialUrl = savedBg || CURATED_LANDSCAPE_BGS[currentFallbackIndex];
-          applyVerifiedImage(defaultInitialUrl);
-
-          // Tải sẵn ngay 1 ảnh tiếp theo vào bộ nhớ đệm
-          prefetchNextImage();
-
+        window.addEventListener('DOMContentLoaded', async () => {
           if (localStorage.getItem('dashboard_ui_hidden') === 'true') {
             toggleDashboardUI();
           }
 
-          if (localStorage.getItem('bg_fit_mode') === 'cover') {
-            toggleBgFit();
-          }
+          // Khởi tạo hàng đợi 3 tấm ảnh đầu tiên & hiển thị tấm đầu tiên
+          await fillImageCacheQueue();
+          displayNextImage();
 
-          setInterval(rotateAnimeBg, 90000);
+          // THỜI GIAN ĐỔI ẢNH MỚI: DÚNG 20 GIÂY / 1 ẢNH (20000 ms)
+          setInterval(displayNextImage, 20000);
           setInterval(fetchRealtimeStatus, 5000);
         });
       </script>
@@ -1004,9 +970,7 @@ app.get('/', (req, res) => {
       <div class="header">
         <h1>KIRU ĐẸP TRAI</h1>
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <button id="btn-rotate-bg" type="button" class="btn-warning" onclick="rotateAnimeBg(true)">🔄 Đổi Ảnh Khác</button>
           <button type="button" class="btn-purple" onclick="openModal('modal-custom-bg')">🔗 Dán Link Ảnh</button>
-          <button id="bg-fit-toggle" type="button" class="btn-purple" onclick="toggleBgFit()">🖼️ Chế độ: Vừa Khung (Xem Hết)</button>
           <button id="header-ui-toggle" type="button" class="btn-cyan" onclick="toggleDashboardUI()">👁️ Thu Gọn Bảng (Xem Ảnh)</button>
           <div>${statusBadge}</div>
         </div>
@@ -1215,9 +1179,6 @@ app.get('/', (req, res) => {
 
       <!-- NÚT NỔI FAB LUÔN HIỂN THỊ -->
       <div id="fab-container">
-        <button id="fab-rotate-bg" type="button" class="fab-toggle" style="background: linear-gradient(135deg, #f59e0b, #d97706);" onclick="rotateAnimeBg(true)">
-          🔄 Đổi Ảnh
-        </button>
         <button id="fab-ui-toggle" type="button" class="fab-toggle" onclick="toggleDashboardUI()">
           👁️ Thu Gọn Bảng (Xem Ảnh)
         </button>
