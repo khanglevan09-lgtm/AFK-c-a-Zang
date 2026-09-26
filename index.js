@@ -20,19 +20,27 @@ let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 const toggles = {
   afkmode: false,
   thien: false,
-  quylai: false,
+  quylai: false, // Sử dụng lệnh /quylay
   dinhthan: false,
   quanghao: false,
   attackLeft: false,
   attackRight: false,
   skill1: false,
   skill2: false,
-  skill3: false
+  skill3: false,
+  sneak: false // Nút ngồi / rón rén (Shift)
 };
 
 // Cấu hình tốc độ click chuột (tối thiểu 0.1s = 100ms)
 let attackLeftIntervalMs = 500;
 let attackRightIntervalMs = 500;
+
+// Cấu hình Chuyển Ô Vật Phẩm (Hotbar 1-9 -> Index 0-8)
+const slotConfig = {
+  enabled: [false, false, false, false, false, false, false, false, false],
+  holdTimeSec: 5
+};
+let currentSlotIndex = 0;
 
 let bot = null;
 let reconnectTimeout = null;
@@ -60,6 +68,8 @@ let quylaiInterval = null;
 let attackLeftInterval = null;
 let attackRightInterval = null;
 let skillLoopInterval = null;
+let sneakLoopInterval = null;
+let slotSwitchInterval = null;
 
 let isAwaitingResponse = false;
 let isAutoActionRunning = false;
@@ -82,7 +92,7 @@ function getVNTime() {
 
 function addChatLog(msg) {
   serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
-  if (serverChatLogs.length > 50) serverChatLogs.pop();
+  if (serverChatLogs.length > 80) serverChatLogs.pop();
 }
 
 function addErrorLog(type, details) {
@@ -109,6 +119,47 @@ function addBotMentionLog(msg) {
   });
 }
 
+// Xử lý đọc chính xác tên vật phẩm từ Minecraft NBT / Display Name
+function stripFormatting(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '').trim();
+}
+
+function getExactItemName(item) {
+  if (!item) return 'Tay không';
+  
+  if (item.customName) {
+    try {
+      const parsed = JSON.parse(item.customName);
+      if (parsed.text) return stripFormatting(parsed.text);
+      if (parsed.extra && Array.isArray(parsed.extra)) {
+        return stripFormatting(parsed.extra.map(e => (typeof e === 'string' ? e : e.text || '')).join(''));
+      }
+    } catch (e) {
+      return stripFormatting(item.customName);
+    }
+  }
+
+  if (item.nbt && item.nbt.value && item.nbt.value.display && item.nbt.value.display.value) {
+    const disp = item.nbt.value.display.value;
+    if (disp.Name && disp.Name.value) {
+      const rawName = disp.Name.value;
+      try {
+        const parsed = JSON.parse(rawName);
+        if (typeof parsed === 'string') return stripFormatting(parsed);
+        if (parsed.text) return stripFormatting(parsed.text);
+        if (parsed.extra && Array.isArray(parsed.extra)) {
+          return stripFormatting(parsed.extra.map(e => (typeof e === 'string' ? e : e.text || '')).join(''));
+        }
+      } catch (e) {
+        return stripFormatting(rawName);
+      }
+    }
+  }
+
+  return item.displayName || item.name || 'Vật phẩm không tên';
+}
+
 function triggerChatWindow(durationMs = 8000) {
   isAwaitingResponse = true;
   if (commandResponseTimer) clearTimeout(commandResponseTimer);
@@ -131,7 +182,7 @@ function safeChat(msg) {
 
 app.get('/api/ping', (req, res) => res.send('PONG_OK'));
 
-// ENDPOINT CẬP NHẬT CẤU HÌNH TỰ ĐỘNG
+// ENDPOINT CẬP NHẬT CẤU HÌNH TỰ ĐỘNG (SỬA LỖI 502 RENDER)
 app.post('/api/update-config', (req, res) => {
   const { username, password, host } = req.body;
   
@@ -152,10 +203,15 @@ app.post('/api/update-config', (req, res) => {
 
   addErrorLog('CẤU HÌNH', `Đã cập nhật cấu hình Bot [${BOT_USERNAME}]. Đang kết nối lại...`);
   
-  consecutiveFailures = 0;
-  isManualStopped = false;
-  createBot();
+  // Trả về response thành công trước để Render không bị đứt Socket / 502 Bad Gateway
   res.redirect('/');
+
+  // Tái kết nối asynchronously
+  setImmediate(() => {
+    consecutiveFailures = 0;
+    isManualStopped = false;
+    createBot();
+  });
 });
 
 app.post('/api/command', (req, res) => {
@@ -180,7 +236,7 @@ app.get('/api/toggle/:feature', (req, res) => {
     if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
       if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
       if (feat === 'thien') safeChat('/thien');
-      if (feat === 'quylai') safeChat('/quylai');
+      if (feat === 'quylai') safeChat('/quylay'); // Lệnh đổi thành /quylay
       if (feat === 'dinhthan') safeChat('/dinhthan');
       if (feat === 'quanghao') safeChat('/quanghao');
       if (feat === 'skill1') safeChat('/kinang_1');
@@ -203,6 +259,21 @@ app.post('/api/update-click-speed', (req, res) => {
   }
   if (!isNaN(rightSpeed) && rightSpeed >= 0.1) {
     attackRightIntervalMs = Math.round(rightSpeed * 1000);
+  }
+
+  restartLoops();
+  res.redirect('/');
+});
+
+// ENDPOINT SETTING CÁC Ô CÔNG CỤ (HOTBAR 1-9)
+app.post('/api/update-slots', (req, res) => {
+  const holdTimeSec = parseInt(req.body.holdTimeSec);
+  if (!isNaN(holdTimeSec) && holdTimeSec >= 1) {
+    slotConfig.holdTimeSec = holdTimeSec;
+  }
+
+  for (let i = 0; i < 9; i++) {
+    slotConfig.enabled[i] = req.body[`slot_${i}`] === 'on';
   }
 
   restartLoops();
@@ -259,7 +330,7 @@ app.get('/api/hard-restart', (req, res) => {
 app.get('/', (req, res) => {
   const uptimeMinutes = Math.floor((Date.now() - startTime) / 60000);
   const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-  const currentWeapon = (bot && bot.heldItem) ? bot.heldItem.displayName : 'Tay không';
+  const currentWeapon = (bot && bot.heldItem) ? getExactItemName(bot.heldItem) : 'Tay không';
 
   let statusBadge = '<span class="badge-off">OFFLINE</span>';
   if (isManualStopped) {
@@ -283,175 +354,71 @@ app.get('/', (req, res) => {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <title>Kiru Đẹp Trai</title>
+      <title>Kiru Đẹp Trai - MC Bot Control</title>
       <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
       <style>
-        :root {
-          --card-bg: rgba(10, 14, 26, 0.85);
-          --accent-cyan: #38bdf8;
-          --accent-pink: #f43f5e;
-          --accent-purple: #c084fc;
-          --accent-green: #4ade80;
-          --accent-yellow: #fbbf24;
-          --border: rgba(244, 63, 94, 0.25);
+        /* ... existing CSS ... */
+        /* TOOLBAR SLOTS UI */
+        .slot-grid {
+          display: grid;
+          grid-template-columns: repeat(9, 1fr);
+          gap: 6px;
+          margin: 10px 0;
         }
-        * { box-sizing: border-box; }
-        
-        body {
-          font-family: 'Plus Jakarta Sans', sans-serif;
-          margin: 0;
-          padding: 16px;
-          color: #f8fafc;
-          min-height: 100vh;
-          background-color: #05070f;
-          background-position: center center;
-          background-repeat: no-repeat;
-          background-attachment: fixed;
-          background-size: cover;
-          transition: background-image 0.8s ease-in-out;
-          position: relative;
+        .slot-item {
+          background: rgba(0, 0, 0, 0.5);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          padding: 8px 4px;
+          text-align: center;
+          font-size: 0.8rem;
+        }
+        .slot-item input[type="checkbox"] {
+          margin-top: 4px;
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
         }
 
-        body::before {
-          content: '';
+        /* MODAL STYLES */
+        .modal-overlay {
+          display: none;
           position: fixed;
           top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(4, 6, 14, 0.70);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          z-index: -1;
-        }
-
-        .header {
-          display: flex;
+          background: rgba(0, 0, 0, 0.8);
+          backdrop-filter: blur(10px);
+          z-index: 1000;
+          justify-content: center;
           align-items: center;
-          justify-content: space-between;
-          padding-bottom: 15px;
-          border-bottom: 2px solid var(--border);
-          margin-bottom: 20px;
-          gap: 12px;
-          flex-wrap: wrap;
+          padding: 16px;
         }
-
-        h1 {
-          font-family: 'Orbitron', sans-serif;
-          font-size: 1.8rem;
-          margin: 0;
-          background: linear-gradient(90deg, #38bdf8, #f43f5e, #c084fc);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          text-shadow: 0 0 20px rgba(244, 63, 94, 0.4);
-        }
-
-        .container {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 20px;
-        }
-
-        .card {
-          background: var(--card-bg);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          padding: 18px;
-          border-radius: 18px;
+        .modal-card {
+          background: #0b0f19;
           border: 1px solid var(--border);
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-          margin-bottom: 20px;
-        }
-
-        h3 {
-          margin-top: 0;
-          color: var(--accent-cyan);
-          font-size: 1.1rem;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .badge-on { background: rgba(74, 222, 128, 0.2); color: #4ade80; border: 1px solid #22c55e; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; }
-        .badge-off { background: rgba(244, 63, 94, 0.2); color: #f43f5e; border: 1px solid #f43f5e; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; }
-        .badge-pause { background: rgba(251, 191, 36, 0.2); color: #fbbf24; border: 1px solid #f59e0b; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 0.85rem; }
-        
-        .status-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-          gap: 10px;
-          margin: 15px 0;
-        }
-
-        .status-item {
-          background: rgba(0, 0, 0, 0.4);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          padding: 10px 12px;
-          border-radius: 12px;
+          border-radius: 16px;
+          width: 100%;
+          max-width: 800px;
+          max-height: 90vh;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          padding: 20px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.8);
         }
-
-        .status-item .label {
-          font-size: 0.7rem;
-          color: #94a3b8;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          font-weight: 700;
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 10px;
         }
-
-        .status-item .value {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: #f8fafc;
-          word-break: break-all;
-        }
-
-        .chat-box { background: rgba(0, 0, 0, 0.6); padding: 12px; border-radius: 12px; font-family: monospace; height: 320px; overflow-y: auto; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2); font-size: 0.85rem; }
-        .error-box { background: rgba(20, 5, 5, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 220px; overflow-y: auto; color: #f87171; border: 1px solid rgba(244, 63, 94, 0.3); font-size: 0.85rem; }
-        .kiru-box { background: rgba(15, 23, 15, 0.7); padding: 12px; border-radius: 12px; font-family: monospace; height: 200px; overflow-y: auto; color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); font-size: 0.85rem; }
-        
-        .input-group { display: flex; gap: 10px; margin-top: 10px; }
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-        input[type="text"], input[type="password"], input[type="number"] { 
-          width: 100%; 
-          padding: 10px 14px; 
-          border-radius: 10px; 
-          border: 1px solid rgba(255, 255, 255, 0.15); 
-          background: rgba(0, 0, 0, 0.5); 
-          color: white; 
-          outline: none; 
-          font-size: 0.9rem; 
-        }
-        input:focus { border-color: var(--accent-pink); box-shadow: 0 0 10px rgba(244, 63, 94, 0.4); }
-        
-        button { padding: 10px 18px; background: linear-gradient(135deg, #e11d48, #be123c); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; transition: all 0.25s ease; white-space: nowrap; font-size: 0.9rem; }
-        button:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(225, 29, 72, 0.5); }
-        .btn-stop { background: linear-gradient(135deg, #dc2626, #991b1b) !important; }
-        .btn-start { background: linear-gradient(135deg, #16a34a, #15803d) !important; }
-        .btn-warning { background: linear-gradient(135deg, #d97706, #b45309) !important; }
-        .btn-purple { background: linear-gradient(135deg, #9333ea, #6b21a8) !important; }
-        .btn-save { background: linear-gradient(135deg, #0284c7, #0369a1) !important; width: 100%; margin-top: 10px; }
-        .btn-eye {
-          position: absolute;
-          right: 6px;
-          top: 50%;
-          transform: translateY(-50%);
+        .modal-close {
           background: transparent;
           border: none;
-          color: var(--accent-cyan);
+          color: #f43f5e;
+          font-size: 1.5rem;
           cursor: pointer;
-          font-size: 0.85rem;
           font-weight: bold;
-          padding: 4px 8px;
-        }
-        .btn-eye:hover { color: #fff; transform: translateY(-50%); box-shadow: none; }
-        label { font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 4px; }
-
-        .btn-group-responsive {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-          gap: 10px;
-          margin-top: 15px;
         }
 
         @media (max-width: 1024px) {
@@ -466,6 +433,7 @@ app.get('/', (req, res) => {
           .input-group { flex-direction: column; }
           .input-group button { width: 100%; }
           .btn-group-responsive { grid-template-columns: 1fr; }
+          .slot-grid { grid-template-columns: repeat(3, 1fr); }
           .card { padding: 14px; }
         }
       </style>
@@ -475,30 +443,38 @@ app.get('/', (req, res) => {
           if (!activeEl || activeEl.tagName !== 'INPUT') { location.reload(); }
         }, 5000);
 
+        // TỰ ĐỘNG LẤY ẢNH GÁI XINH ANIME LÀM NỀN TỪ MẠNG
         async function rotateAnimeBg() {
-          try {
-            const res = await fetch('https://api.waifu.pics/sfw/waifu');
-            const data = await res.json();
-            if (data && data.url) {
-              const img = new Image();
-              img.src = data.url;
-              img.onload = () => {
-                document.body.style.backgroundImage = 'url("' + data.url + '")';
-              };
-            }
-          } catch (e) {}
-        }
-        
-        function togglePasswordVisibility() {
-          const pwdInput = document.getElementById('pwd-input');
-          const eyeText = document.getElementById('eye-text');
-          if (pwdInput.type === 'password') {
-            pwdInput.type = 'text';
-            eyeText.textContent = 'Ẩn';
-          } else {
-            pwdInput.type = 'password';
-            eyeText.textContent = 'Hiện';
+          const apis = [
+            'https://api.waifu.pics/sfw/waifu',
+            'https://nekos.best/api/v2/neko'
+          ];
+          for (let api of apis) {
+            try {
+              const res = await fetch(api);
+              const data = await res.json();
+              let imgUrl = '';
+              if (data && data.url) imgUrl = data.url;
+              else if (data && data.results && data.results[0] && data.results[0].url) imgUrl = data.results[0].url;
+
+              if (imgUrl) {
+                const img = new Image();
+                img.src = imgUrl;
+                img.onload = () => {
+                  document.body.style.backgroundImage = 'url("' + imgUrl + '")';
+                };
+                break;
+              }
+            } catch (e) {}
           }
+        }
+
+        function openModal(id) {
+          document.getElementById(id).style.display = 'flex';
+        }
+
+        function closeModal(id) {
+          document.getElementById(id).style.display = 'none';
         }
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -533,8 +509,8 @@ app.get('/', (req, res) => {
                 <span class="value"><code>${currentCoords}</code></span>
               </div>
               <div class="status-item">
-                <span class="label">Trang Bị</span>
-                <span class="value"><code>${currentWeapon}</code></span>
+                <span class="label">Vật Phẩm Cầm Trên Tay</span>
+                <span class="value" style="color: var(--accent-yellow);"><code>${currentWeapon}</code></span>
               </div>
               <div class="status-item">
                 <span class="label">Hoạt Động</span>
@@ -546,9 +522,15 @@ app.get('/', (req, res) => {
               </div>
             </div>
 
+            <!-- CỬA SỔ MENU CHO CÁC MỤC CHAT SERVER VÀ LỖI HỆ THỐNG -->
+            <div class="btn-group-responsive">
+              <button type="button" class="btn-cyan" onclick="openModal('modal-chat')">💬 Cửa Sổ Chat Server</button>
+              <button type="button" class="btn-warning" onclick="openModal('modal-errors')">⚠️ Cửa Sổ Nhật Ký Lỗi</button>
+            </div>
+
             <form class="input-group" action="/api/command" method="POST">
               <input type="text" id="cmd-input" name="command" placeholder="Gửi lệnh hoặc chat vào server..." autocomplete="off" required>
-              <button type="submit">Gửi</button>
+              <button type="submit">Gửi Chat</button>
             </form>
 
             <div class="btn-group-responsive">
@@ -564,15 +546,37 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
+          <!-- Ô CÔNG CỤ TỰ ĐỘNG CHUYỂN DỔI (SLOTS 1 TO 9) -->
+          <div class="card">
+            <h3>Cấu Hình Ô Công Cụ Bot (Ô 1 ➔ Ô 9)</h3>
+            <form action="/api/update-slots" method="POST">
+              <div style="margin-bottom: 8px;">
+                <label>Thời gian cầm mỗi ô trước khi đổi sang ô tiếp theo (giây):</label>
+                <input type="number" min="1" name="holdTimeSec" value="${slotConfig.holdTimeSec}" required>
+              </div>
+              <label>Bật/Tắt các ô cần chuyển đổi cầm trên tay:</label>
+              <div class="slot-grid">
+                ${[1,2,3,4,5,6,7,8,9].map((num, idx) => `
+                  <div class="slot-item">
+                    <div><b>Ô ${num}</b></div>
+                    <input type="checkbox" name="slot_${idx}" ${slotConfig.enabled[idx] ? 'checked' : ''}>
+                  </div>
+                `).join('')}
+              </div>
+              <button type="submit" class="btn-save">Lưu Thiết Lập Ô Cầm</button>
+            </form>
+          </div>
+
           <!-- BẬT / TẮT TÍNH NĂNG AUTO (NÚT GỌN GÀNG) -->
           <div class="card">
-            <h3>Bật / Tắt Lệnh Tự Động</h3>
+            <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
             <div class="btn-group-responsive">
               ${renderToggleBtn('afkmode', 'AFK Mode')}
               ${renderToggleBtn('thien', 'Thiền')}
               ${renderToggleBtn('quylai', 'Quỳ Lạy')}
               ${renderToggleBtn('dinhthan', 'Định Thân')}
               ${renderToggleBtn('quanghao', 'Quang Hào')}
+              ${renderToggleBtn('sneak', 'Nút Ngồi / Rón Rén (Shift 5s)')}
             </div>
           </div>
 
@@ -611,7 +615,7 @@ app.get('/', (req, res) => {
           <!-- FORM DÙNG CHUNG CHO TẤT CẢ CẤU HÌNH -->
           <form action="/api/update-config" method="POST">
             <div class="card">
-              <h3>Đăng Nhập</h3>
+              <h3>Cấu Hình Tài Khoản & Server</h3>
               <div class="form-grid">
                 <div>
                   <label>Tên Nhân Vật:</label>
@@ -619,17 +623,10 @@ app.get('/', (req, res) => {
                 </div>
                 <div>
                   <label>Mật Khẩu:</label>
-                  <div style="position: relative;">
-                    <input type="password" id="pwd-input" name="password" value="${BOT_PASSWORD}" required autocomplete="off" style="padding-right: 55px;">
-                    <button type="button" class="btn-eye" onclick="togglePasswordVisibility()"><span id="eye-text">Hiện</span></button>
-                  </div>
+                  <input type="password" name="password" value="${BOT_PASSWORD}" required autocomplete="off" placeholder="••••••••">
                 </div>
               </div>
-            </div>
-
-            <div class="card">
-              <h3>IP Server</h3>
-              <div>
+              <div style="margin-top: 10px;">
                 <label>IP Server:</label>
                 <input type="text" name="host" value="${BOT_HOST}${BOT_PORT && BOT_PORT !== 25565 ? ':' + BOT_PORT : ''}" required autocomplete="off" placeholder="vangioinetwork.xyz hoặc ip:port">
               </div>
@@ -653,12 +650,16 @@ app.get('/', (req, res) => {
             <p style="word-break: break-all;"><code>${pingLogs.length > 0 ? pingLogs.map(p => `[${p.time}:${p.ping}ms]`).join(' ➔ ') : 'Đang thu thập...'}</code></p>
           </div>
 
-          <!-- CHAT SERVER REALTIME 24/24 -->
+          <!-- CHAT SERVER REALTIME PANEL GIÚP QUAN SÁT VÀ CHAT TRỰC TIẾP -->
           <div class="card">
             <h3>Chat Server (24/24)</h3>
-            <div class="chat-box">
+            <div class="chat-box" style="height: 380px;">
               ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
             </div>
+            <form class="input-group" action="/api/command" method="POST" style="margin-top: 10px;">
+              <input type="text" name="command" placeholder="Nhập tin nhắn..." autocomplete="off" required>
+              <button type="submit">Gửi</button>
+            </form>
           </div>
 
           <div class="card">
@@ -666,6 +667,39 @@ app.get('/', (req, res) => {
             <div class="error-box">
               ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL CHAT SERVER DẠNG CỬA SỔ MENU POPUP -->
+      <div id="modal-chat" class="modal-overlay">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 style="margin: 0; color: var(--accent-cyan);">💬 Cửa Sổ Chat Server</h3>
+            <button class="modal-close" onclick="closeModal('modal-chat')">&times;</button>
+          </div>
+          <div class="chat-box" style="flex: 1; height: 100%;">
+            ${serverChatLogs.length > 0 ? serverChatLogs.map(l => `<div>${l}</div>`).join('') : '<i>Chưa có nhật ký...</i>'}
+          </div>
+          <form class="input-group" action="/api/command" method="POST" style="margin-top: 12px;">
+            <input type="text" name="command" placeholder="Nhập lệnh hoặc chat..." autocomplete="off" required>
+            <button type="submit">Gửi Ngay</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- MODAL LỖI DẠNG CỬA SỔ MENU POPUP -->
+      <div id="modal-errors" class="modal-overlay">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 style="margin: 0; color: #f87171;">⚠️ Nhật Ký Lỗi Hệ Thống</h3>
+            <button class="modal-close" onclick="closeModal('modal-errors')">&times;</button>
+          </div>
+          <div class="error-box" style="flex: 1; height: 100%;">
+            ${errorLogs.length > 0 ? errorLogs.map(e => `<div>[${e.time}] <b>[${e.type}]</b>:${e.details}</div>`).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
+          </div>
+          <div style="margin-top: 12px; text-align: right;">
+            <a href="/api/clear-error-log" style="text-decoration: none;"><button type="button" class="btn-warning">Xóa Nhật Ký Lỗi</button></a>
           </div>
         </div>
       </div>
@@ -681,6 +715,8 @@ function stopFeatureLoops() {
   if (attackLeftInterval) { clearInterval(attackLeftInterval); attackLeftInterval = null; }
   if (attackRightInterval) { clearInterval(attackRightInterval); attackRightInterval = null; }
   if (skillLoopInterval) { clearInterval(skillLoopInterval); skillLoopInterval = null; }
+  if (sneakLoopInterval) { clearInterval(sneakLoopInterval); sneakLoopInterval = null; }
+  if (slotSwitchInterval) { clearInterval(slotSwitchInterval); slotSwitchInterval = null; }
 }
 
 function restartLoops() {
@@ -689,10 +725,10 @@ function restartLoops() {
   // Kiểm tra chặt chẽ xem bot có tồn tại trong game hay không
   if (!bot || !bot.entity || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
 
-  // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT
+  // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT (/quylay)
   if (toggles.quylai) {
     quylaiInterval = setInterval(() => {
-      if (toggles.quylai) safeChat('/quylai');
+      if (toggles.quylai) safeChat('/quylay');
     }, 47000);
   }
 
@@ -724,6 +760,40 @@ function restartLoops() {
       }
     }, 10000);
   }
+
+  // 5. Nút Ngồi / đi rón rén (Shift) - vòng lặp 5s 1 lần khi bật
+  if (toggles.sneak) {
+    let isSneaking = false;
+    sneakLoopInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        try {
+          isSneaking = !isSneaking;
+          bot.setControlState('sneak', isSneaking);
+        } catch (e) {}
+      }
+    }, 5000);
+  }
+
+  // 6. Tự động chuyển đổi các Ô Thanh Công Cụ (Slots 1 - 9)
+  const enabledSlots = slotConfig.enabled
+    .map((enabled, index) => enabled ? index : null)
+    .filter(idx => idx !== null);
+
+  if (enabledSlots.length > 0) {
+    slotSwitchInterval = setInterval(() => {
+      if (bot && bot.inventory && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        try {
+          if (enabledSlots.length === 1) {
+            bot.setQuickBarSlot(enabledSlots[0]);
+          } else {
+            currentSlotIndex = (currentSlotIndex + 1) % enabledSlots.length;
+            const targetSlot = enabledSlots[currentSlotIndex];
+            bot.setQuickBarSlot(targetSlot);
+          }
+        } catch (e) {}
+      }
+    }, slotConfig.holdTimeSec * 1000);
+  }
 }
 
 function cleanupBot() {
@@ -745,7 +815,6 @@ function cleanupBot() {
   if (bot) {
     try {
       bot.clearControlStates();
-      // Loại bỏ việc xóa listeners can thiệp sâu, để cho bot.end() xử lý
       bot.end(); 
     } catch (e) {}
     bot = null;
@@ -774,10 +843,12 @@ function scheduleNextAction() {
     if (actionType === 0) {
       currentBot.swingArm('right');
     } else if (actionType === 1) {
-      currentBot.setControlState('sneak', true);
-      setTimeout(() => {
-        if (bot === currentBot && bot.entity) bot.setControlState('sneak', false);
-      }, Math.floor(150 + Math.random() * 200));
+      if (!toggles.sneak) {
+        currentBot.setControlState('sneak', true);
+        setTimeout(() => {
+          if (bot === currentBot && bot.entity && !toggles.sneak) bot.setControlState('sneak', false);
+        }, Math.floor(150 + Math.random() * 200));
+      }
     } else {
       try { currentBot.activateItem(); } catch (err) {}
     }
@@ -820,7 +891,7 @@ function executeActiveFeaturesOnSpawn() {
     delay += 1200;
   }
   if (toggles.quylai) {
-    setTimeout(() => safeChat('/quylai'), delay);
+    setTimeout(() => safeChat('/quylay'), delay);
     delay += 1200;
   }
   if (toggles.dinhthan) {
@@ -1016,7 +1087,6 @@ function createBot() {
     addErrorLog('Bị Server Kick', reasonStr);
     
     if (reasonStr.includes('LƯU DỮ LIỆU') || reasonStr.includes('lưu dữ liệu') || reasonStr.includes('\u003d\u003d')) {
-      // Khi server lưu dữ liệu, tăng thời gian đợi reconnect lên 25s để tránh timeout socket
       currentReconnectDelay = 25000;
     }
     handleReconnect();
@@ -1042,7 +1112,7 @@ function handleReconnect() {
   
   reconnectTimeout = setTimeout(() => {
     isReconnecting = false;
-    currentReconnectDelay = 12000; // Trả lại delay chuẩn cho lần sau
+    currentReconnectDelay = 12000;
     createBot();
   }, currentReconnectDelay);
 }
