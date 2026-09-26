@@ -89,7 +89,7 @@ function getVNTime() {
 
 function addChatLog(msg) {
   serverChatLogs.unshift(`[${getVNTime()}] ${msg}`);
-  if (serverChatLogs.length > 50) serverChatLogs.pop();
+  if (serverChatLogs.length > 25) serverChatLogs.pop();
 }
 
 function addErrorLog(type, details) {
@@ -98,7 +98,7 @@ function addErrorLog(type, details) {
     type: type,
     details: details
   });
-  if (errorLogs.length > 50) errorLogs.pop();
+  if (errorLogs.length > 25) errorLogs.pop();
 }
 
 function addPingLog(pingVal) {
@@ -339,23 +339,8 @@ app.get('/', (req, res) => {
           padding: 16px;
           color: #f8fafc;
           min-height: 100vh;
-          background-color: #05070f;
-          background-position: center top;
-          background-repeat: no-repeat;
+          background: radial-gradient(circle at 50% 10%, #0f172a 0%, #020617 100%);
           background-attachment: fixed;
-          background-size: cover;
-          transition: background-image 0.6s ease-in-out;
-          position: relative;
-        }
-
-        body::before {
-          content: '';
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(4, 6, 14, 0.55);
-          backdrop-filter: blur(4px);
-          -webkit-backdrop-filter: blur(4px);
-          z-index: -1;
         }
 
         /* NÚT THU GỌN / HIỆN BẢNG CONTROL GÓC MÀN HÌNH */
@@ -539,37 +524,6 @@ app.get('/', (req, res) => {
         }
       </style>
       <script>
-        // TỰ ĐỘNG LẤY VÀ XOAY ẢNH ANIME TỪ CÁC PHÂN PHỐI UY TÍN (30s - 1 phút) + DỌN RAM ẢNH CŨ
-        const animeApis = [
-          'https://api.waifu.pics/sfw/waifu',
-          'https://api.waifu.im/search?is_nsfw=false',
-          'https://nekos.best/api/v2/neko'
-        ];
-
-        async function rotateAnimeBg() {
-          try {
-            const chosenApi = animeApis[Math.floor(Math.random() * animeApis.length)];
-            const res = await fetch(chosenApi);
-            const data = await res.json();
-            
-            let imageUrl = '';
-            if (data.url) imageUrl = data.url; // waifu.pics
-            else if (data.images && data.images[0]) imageUrl = data.images[0].url; // waifu.im
-            else if (data.results && data.results[0]) imageUrl = data.results[0].url; // nekos.best
-
-            if (imageUrl) {
-              const img = new Image();
-              img.src = imageUrl;
-              img.onload = () => {
-                document.body.style.backgroundImage = 'url("' + imageUrl + '")';
-                // Dọn dẹp RAM ảnh cũ
-                img.onload = null;
-                img.src = '';
-              };
-            }
-          } catch (e) {}
-        }
-
         function toggleDashboardView() {
           const container = document.getElementById('main-dashboard');
           const toggleBtn = document.getElementById('toggle-ui-text');
@@ -585,29 +539,26 @@ app.get('/', (req, res) => {
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-          rotateAnimeBg();
-          setInterval(rotateAnimeBg, 45000); // 45 giây đổi 1 lần
-
           // Khôi phục trạng thái thu gọn UI
           if (localStorage.getItem('ui_collapsed') === 'true') {
             document.getElementById('main-dashboard').style.display = 'none';
             document.getElementById('toggle-ui-text').textContent = 'Hiện Bảng Control';
           }
 
-          // Tự động làm mới khi không gõ phím
+          // Tự động làm mới khi không gõ phím (Mỗi 10s để tiết kiệm tài nguyên Server)
           setInterval(() => { 
             const activeEl = document.activeElement;
             if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) { 
               location.reload(); 
             }
-          }, 5000);
+          }, 10000);
         });
       </script>
     </head>
     <body>
 
       <button type="button" class="toggle-ui-btn" onclick="toggleDashboardView()">
-        🌸 <span id="toggle-ui-text">Thu Gọn Bảng Control</span>
+        ⚙️ <span id="toggle-ui-text">Thu Gọn Bảng Control</span>
       </button>
 
       <div class="header">
@@ -1050,21 +1001,19 @@ function createBot() {
       }, 7000);
 
       ramGcInterval = setInterval(() => {
-        if (bot && bot.entities && bot.entity && bot.entity.position) {
-          const myPos = bot.entity.position;
+        if (bot && bot.entities) {
+          const myPos = bot.entity ? bot.entity.position : null;
           Object.keys(bot.entities).forEach(id => {
             const ent = bot.entities[id];
-            if (ent && ent.position && ent.id !== bot.entity.id) {
-              if (ent.position.distanceTo(myPos) > 16) {
-                delete bot.entities[id];
-              }
+            if (!ent || !myPos || (ent.position && ent.position.distanceTo(myPos) > 12) || ent.id !== bot.entity?.id) {
+              delete bot.entities[id];
             }
           });
         }
         if (global.gc) {
           try { global.gc(); } catch (e) {}
         }
-      }, 30000);
+      }, 15000);
 
       pingInterval = setInterval(() => {
         if (bot && bot.player) {
