@@ -19,6 +19,7 @@ let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 const toggles = {
   afkmode: false,
   phoban: false, // MỚI: Tự động phó bản (/phoban 5s/lần & quét GUI 1/5)
+  autoleave: false, // MỚI: Tự động gõ /ada leave khi xung quanh không có người chơi
   thien: false,
   quylay: false,
   dinhthan: false,
@@ -63,6 +64,7 @@ let commandResponseTimer = null;
 
 // TIMERS DÀNH CHO CÁC TÍNH NĂNG ĐỊNH KỲ
 let phobanInterval = null; // MỚI: Timer lặp lại lệnh /phoban mỗi 5s
+let autoleaveInterval = null; // MỚI: Timer kiểm tra người chơi xung quanh & /ada leave
 let quylayInterval = null;
 let ngoiInterval = null;
 let attackLeftInterval = null;
@@ -124,6 +126,24 @@ function triggerChatWindow(durationMs = 8000) {
   commandResponseTimer = setTimeout(() => {
     isAwaitingResponse = false;
   }, durationMs);
+}
+
+// ĐẾM SỐ LƯỢNG NGƯỜI CHƠI XUNG QUANH TRONG BÁN KÍNH (BLOCK)
+function getNearbyPlayerCount(radius = 30) {
+  if (!bot || !bot.entity) return 0;
+  let count = 0;
+  for (const id in bot.entities) {
+    const ent = bot.entities[id];
+    if (ent && ent.type === 'player' && ent.id !== bot.entity.id) {
+      if (bot.entity.position && ent.position) {
+        const dist = bot.entity.position.distanceTo(ent.position);
+        if (dist <= radius) {
+          count++;
+        }
+      }
+    }
+  }
+  return count;
 }
 
 // LẤY TÊN CHÍNH XÁC CỦA VẬT PHẨM TRÊN TAY BOT
@@ -202,6 +222,7 @@ app.get('/api/toggle/:feature', (req, res) => {
 
     if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
       if (feat === 'phoban' && toggles.phoban) safeChat('/phoban');
+      if (feat === 'autoleave' && toggles.autoleave) addChatLog('[AUTO LEAVE] Đã BẬT tự động rời phòng (/ada leave)');
       if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
       if (feat === 'thien') safeChat('/thien');
       if (feat === 'quylay') safeChat('/quylay');
@@ -643,6 +664,7 @@ app.get('/', (req, res) => {
             <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
             <div class="btn-group-responsive">
               ${renderToggleBtn('phoban', 'Auto Phó Bản (5s/lần)')}
+              ${renderToggleBtn('autoleave', 'Auto Leave Một Mình (/ada leave)')}
               ${renderToggleBtn('afkmode', 'AFK Mode')}
               ${renderToggleBtn('thien', 'Thiền')}
               ${renderToggleBtn('quylay', 'Quỳ Lạy')}
@@ -747,6 +769,7 @@ app.listen(port, () => console.log(`[HTTP SERVER] Running on port ${port}`));
 
 function stopFeatureLoops() {
   if (phobanInterval) { clearInterval(phobanInterval); phobanInterval = null; }
+  if (autoleaveInterval) { clearInterval(autoleaveInterval); autoleaveInterval = null; }
   if (quylayInterval) { clearInterval(quylayInterval); quylayInterval = null; }
   if (ngoiInterval) { clearInterval(ngoiInterval); ngoiInterval = null; }
   if (attackLeftInterval) { clearInterval(attackLeftInterval); attackLeftInterval = null; }
@@ -766,6 +789,19 @@ function restartLoops() {
     phobanInterval = setInterval(() => {
       if (toggles.phoban && bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
         safeChat('/phoban');
+      }
+    }, 5000);
+  }
+
+  // 0.5. AUTO LEAVE KHÔNG CÓ NGƯỜI CHƠI XUNG QUANH (BÁN KÍNH 30 BLOCKS)
+  if (toggles.autoleave) {
+    autoleaveInterval = setInterval(() => {
+      if (toggles.autoleave && bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        const nearbyPlayers = getNearbyPlayerCount(30);
+        if (nearbyPlayers === 0) {
+          addChatLog('[AUTO LEAVE]: Không có người chơi nào trong 30 block! Gửi lệnh /ada leave');
+          safeChat('/ada leave');
+        }
       }
     }, 5000);
   }
@@ -1017,8 +1053,10 @@ function createBot() {
           const myPos = bot.entity ? bot.entity.position : null;
           Object.keys(bot.entities).forEach(id => {
             const ent = bot.entities[id];
-            if (!ent || !myPos || (ent.position && ent.position.distanceTo(myPos) > 12) || ent.id !== bot.entity?.id) {
-              delete bot.entities[id];
+            if (!ent || !myPos || (ent.position && ent.position.distanceTo(myPos) > 48)) {
+              if (ent && ent.id !== bot.entity?.id) {
+                delete bot.entities[id];
+              }
             }
           });
         }
