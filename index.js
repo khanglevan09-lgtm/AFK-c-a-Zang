@@ -37,8 +37,9 @@ let attackLeftIntervalMs = 500;
 let attackRightIntervalMs = 500;
 
 // CẤU HÌNH TỪ KHÓA TÌM KIẾM PHÓ BẢN
-let phobanKeywordsText = '1/5, 1 / 5, sẵn sàng, nhấp để vào, tham gia, phó bản';
-let phobanKeywords = ['1/5', '1 / 5', 'sẵn sàng', 'nhấp để vào', 'tham gia', 'phó bản'];
+let phobanKeywordsText = '250,000 | 1/5, 2/5';
+let phobanKeywords = ['250,000', '250.000', '250000', '1/5', '2/5', '1 / 5', '2 / 5'];
+let cachedPhobanSlot = null; // LƯU VỊ TRÍ Ô PHÓ BẢN SAU KHI TÌM THẤY LẦN ĐẦU
 
 // CẤU HÌNH CÁC Ô THANH CÔNG CỤ (Ô 1 -> Ô 9 tương ứng Index 0 -> 8)
 let hotbarEnabled = [false, false, false, false, false, false, false, false, false];
@@ -264,8 +265,16 @@ app.post('/api/update-phoban-keyword', (req, res) => {
   if (kw && kw.trim() !== '') {
     phobanKeywordsText = kw.trim();
     phobanKeywords = kw.split(',').map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
-    addChatLog(`[TỪ KHÓA PHÓ BẢN] Đã cập nhật: ${phobanKeywords.join(', ')}`);
+    cachedPhobanSlot = null; // Reset vị trí đã lưu khi đổi từ khóa
+    addChatLog(`[TỪ KHÓA PHÓ BẢN] Đã cập nhật: ${phobanKeywords.join(', ')} (Đã xóa vị trí lưu cũ)`);
   }
+  res.redirect('/');
+});
+
+// ENDPOINT RESET VỊ TRÍ Ô PHÓ BẢN ĐÃ LƯU
+app.get('/api/reset-phoban-slot', (req, res) => {
+  cachedPhobanSlot = null;
+  addChatLog('[PHÓ BẢN] Đã xóa vị trí ô đã lưu! Lần tới mở GUI bot sẽ tìm kiếm lại từ đầu.');
   res.redirect('/');
 });
 
@@ -673,11 +682,29 @@ app.get('/', (req, res) => {
             </div>
 
             <!-- CẤU HÌNH TỪ KHÓA AUTO PHÓ BẢN -->
+          <div class="card">
+            <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
+            <div class="btn-group-responsive">
+              ${renderToggleBtn('phoban', 'Auto Phó Bản (5s/lần)')}
+              ${renderToggleBtn('autoleave', 'Auto Leave Một Mình (/ada leave)')}
+              ${renderToggleBtn('afkmode', 'AFK Mode')}
+              ${renderToggleBtn('thien', 'Thiền')}
+              ${renderToggleBtn('quylay', 'Quỳ Lạy')}
+              ${renderToggleBtn('dinhthan', 'Định Thân')}
+              ${renderToggleBtn('quanghao', 'Quang Hào')}
+              ${renderToggleBtn('ngoi', 'Mặt Ngồi / Rón Rén (5s/lần)')}
+            </div>
+
+            <!-- CẤU HÌNH TỪ KHÓA AUTO PHÓ BẢN -->
             <form action="/api/update-phoban-keyword" method="POST" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.15);">
-              <label>Từ khóa quét trong GUI Phó Bản (phân cách bằng dấu phẩy):</label>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label style="margin: 0;">Từ khóa quét trong GUI Phó Bản (phân cách bằng dấu phẩy):</label>
+                <span style="font-size: 0.78rem; color: var(--accent-yellow);">Vị trí đã lưu: <b>${cachedPhobanSlot !== null ? 'Ô ' + (cachedPhobanSlot + 1) : 'Chưa lưu (Sẽ quét lần đầu)'}</b></span>
+              </div>
               <div class="input-group">
                 <input type="text" name="keywords" value="${phobanKeywordsText}" placeholder="ví dụ: 1/5, 1 / 5, sẵn sàng, tham gia" required>
                 <button type="submit" class="btn-save" style="margin-top:0; width:auto;">Lưu Từ Khóa</button>
+                <a href="/api/reset-phoban-slot" style="text-decoration:none;"><button type="button" class="btn-warning" style="height:100%;">Quét Lại Vị Trí</button></a>
               </div>
             </form>
           </div>
@@ -1186,87 +1213,107 @@ function createBot() {
     return stripColorCodes(texts.join(' ')).toLowerCase();
   }
 
+  // HÀM KIỂM TRA ĐIỀU KIỆN PHÓ BẢN: BẮT BUỘC CÓ "250,000" VÀ ("1/5" HOẶC "2/5")
+  function isPhobanTargetItem(item) {
+    if (!item) return false;
+    const rawText = getDeepItemText(item);
+    const textNoSpace = rawText.replace(/\s+/g, '');
+
+    // 1. Yêu cầu đầu tiên: Phải có 250,000
+    const has250k = textNoSpace.includes('250,000') || 
+                    textNoSpace.includes('250.000') || 
+                    textNoSpace.includes('250000');
+
+    if (!has250k) return false;
+
+    // 2. Yêu cầu thứ hai: Chỉ bấm khi có 1/5 hoặc 2/5
+    const hasValidCount = textNoSpace.includes('1/5') || textNoSpace.includes('2/5');
+
+    return hasValidCount;
+  }
+
   bot.on('windowOpen', async (window) => {
     if (!toggles.phoban || isManualStopped) return;
 
+    const totalSlots = window.slots ? window.slots.length : 0; // Hỗ trợ quét tới 72 ô hoặc hơn
     const windowTitle = stripColorCodes(window.title || '');
-    addChatLog(`[GUI MỞ]: "${windowTitle}" (Tổng ô container: ${window.inventoryStart || window.slots.length})`);
+    addChatLog(`[GUI MỞ]: "${windowTitle}" (Tổng số ô GUI: ${totalSlots})`);
 
+    // 1. NẾU ĐÃ LƯU VỊ TRÍ TỪ TRƯỚC -> KIỂM TRA XEM Ô ĐÓ CÓ ĐỦ 250,000 & (1/5 HOẶC 2/5) KHÔNG
+    if (cachedPhobanSlot !== null && cachedPhobanSlot < totalSlots) {
+      const item = window.slots[cachedPhobanSlot];
+      if (item && isPhobanTargetItem(item)) {
+        const rowNum = Math.floor(cachedPhobanSlot / 9) + 1;
+        addChatLog(`[PHÓ BẢN - ĐÃ LƯU VỊ TRÍ]: Ô ${cachedPhobanSlot + 1} (Hàng ${rowNum}) có 250,000 & (1/5 hoặc 2/5) -> Click ngay!`);
+        try {
+          await bot.clickWindow(cachedPhobanSlot, 0, 0);
+          return;
+        } catch (err) {
+          addErrorLog('Lỗi Click Vị Trí Đã Lưu', err.message);
+          cachedPhobanSlot = null; // Reset nếu lỗi click
+        }
+      } else {
+        addChatLog(`[PHÓ BẢN]: Ô đã lưu (${cachedPhobanSlot + 1}) hiện chưa đủ điều kiện (chưa có 1/5 hoặc 2/5). Tiến hành quét toàn bộ GUI...`);
+      }
+    }
+
+    // 2. NẾU CHƯA LƯU HOẶC Ô LƯU CHƯA THỎA ĐIỀU KIỆN -> QUÉT TẤT CẢ CÁC Ô TRONG GUI (LÊN ĐẾN 72+ Ô)
     const scanAndClickSlot = async (attemptName) => {
       if (!bot || !bot.currentWindow || isManualStopped || !toggles.phoban) return false;
 
-      const slotsToCheck = window.inventoryStart || window.slots.length;
       let targetSlot = -1;
-      let matchedKeyword = '';
       let foundItemsCount = 0;
-      let row2Items = [];
 
-      for (let i = 0; i < slotsToCheck; i++) {
+      // Quét toàn bộ từ Ô 0 đến Ô 71+
+      for (let i = 0; i < totalSlots; i++) {
         const item = window.slots[i];
         if (!item) continue;
         foundItemsCount++;
 
-        const fullText = getDeepItemText(item);
-        const itemName = stripColorCodes(item.customName || item.displayName || item.name || '');
-
-        // Chi tiết Hàng 2 (ô index 9 đến 17, tức Ô 10 -> Ô 18 trên GUI)
-        if (i >= 9 && i <= 17) {
-          row2Items.push(`Ô ${i + 1}: "${itemName}" [${fullText.slice(0, 45)}...]`);
+        if (isPhobanTargetItem(item)) {
+          targetSlot = i;
+          break;
         }
-
-        // Kiểm tra từng từ khóa trong phobanKeywords
-        for (const kw of phobanKeywords) {
-          if (kw && fullText.includes(kw)) {
-            targetSlot = i;
-            matchedKeyword = kw;
-            break;
-          }
-        }
-        if (targetSlot !== -1) break;
-      }
-
-      // Log chi tiết Hàng 2 ra Chat Dashboard để tiện theo dõi
-      if (row2Items.length > 0 && attemptName.includes('Lần 1')) {
-        addChatLog(`[PHÓ BẢN - HÀNG 2]: Thấy ${row2Items.length} vật phẩm ở Hàng 2 (ô 10-18): ${row2Items.join(' | ')}`);
       }
 
       if (targetSlot !== -1) {
+        cachedPhobanSlot = targetSlot; // LƯU LẠI VỊ TRÍ CHO CÁC LẦN MỞ SAU!
         const rowNum = Math.floor(targetSlot / 9) + 1;
-        addChatLog(`[PHÓ BẢN - ${attemptName}]: Tìm thấy từ khóa "${matchedKeyword}" tại Ô ${targetSlot + 1} (Hàng ${rowNum})! Đang click...`);
+        addChatLog(`[PHÓ BẢN - ${attemptName}]: Tìm thấy Ô ${targetSlot + 1} (Hàng ${rowNum}) thỏa 250,000 & (1/5 hoặc 2/5)! Đã lưu vị trí.`);
         try {
           await bot.clickWindow(targetSlot, 0, 0);
-          addChatLog(`[PHÓ BẢN]: Đã click thành công Ô ${targetSlot + 1} (Hàng ${rowNum})`);
           return true;
         } catch (err) {
           addErrorLog('Lỗi Click Ô Phó Bản', err.message);
         }
-      } else {
-        addChatLog(`[PHÓ BẢN - ${attemptName}]: Đã quét ${foundItemsCount}/${slotsToCheck} ô GUI (bao gồm Hàng 2: ô 10-18) nhưng chưa thấy từ khóa (${phobanKeywords.join(', ')})`);
       }
       return false;
     };
 
-    // Đăng ký sự kiện cập nhật slot real-time
+    // Đăng ký sự kiện cập nhật slot real-time nếu items tải từ từ
     const onSlotUpdate = async (slot, oldItem, newItem) => {
-      if (!toggles.phoban || isManualStopped) return;
-      if (newItem && slot < (window.inventoryStart || window.slots.length)) {
+      if (!toggles.phoban || isManualStopped || cachedPhobanSlot !== null) return;
+      if (newItem && isPhobanTargetItem(newItem)) {
         await scanAndClickSlot('Realtime Update');
       }
     };
     window.on('updateSlot', onSlotUpdate);
 
-    // Thử quét nhiều lần với khoảng hoãn tăng dần để đảm bảo Server kịp đồng bộ Items
-    setTimeout(() => scanAndClickSlot('Lần 1 - Immediate'), 100);
-    setTimeout(() => scanAndClickSlot('Lần 2 - 500ms'), 500);
-    setTimeout(() => scanAndClickSlot('Lần 3 - 1000ms'), 1000);
-    setTimeout(() => scanAndClickSlot('Lần 4 - 1800ms'), 1800);
+    // Kiên trì quét liên tục nhiều mốc thời gian cho đến khi xuất hiện 1/5 hoặc 2/5
+    const retryDelays = [100, 300, 600, 1000, 1500, 2000, 3000, 4000, 5000, 7000];
+    for (const delay of retryDelays) {
+      setTimeout(() => {
+        if (cachedPhobanSlot === null && bot && bot.currentWindow) {
+          scanAndClickSlot(`Thử ${delay}ms`);
+        }
+      }, delay);
+    }
 
     // TỰ ĐỘNG BẤM "ACCEPT" HOẶC "ĐỒNG Ý" TRONG BẢNG XÁC NHẬN (NẾU CÓ)
     if (windowTitle.toLowerCase().includes('are you sure') || windowTitle.toLowerCase().includes('xác nhận') || windowTitle.toLowerCase().includes('xac nhan')) {
       setTimeout(async () => {
         if (!bot || !bot.currentWindow || isManualStopped) return;
-        const slotsToCheck = window.inventoryStart || window.slots.length;
-        for (let i = 0; i < slotsToCheck; i++) {
+        for (let i = 0; i < totalSlots; i++) {
           const item = window.slots[i];
           if (!item) continue;
 
