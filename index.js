@@ -1110,9 +1110,43 @@ function createBot() {
   });
 
   // --- TÍNH NĂNG AUTO PHÓ BẢN QUA GÓI TIN GUI ---
+  function parseJsonComponent(str) {
+    if (typeof str !== 'string') return '';
+    if (!str.startsWith('{') && !str.startsWith('[')) return str;
+    try {
+      const obj = JSON.parse(str);
+      return extractTextFromComponent(obj);
+    } catch (e) {
+      return str;
+    }
+  }
+
+  function extractTextFromComponent(comp) {
+    if (!comp) return '';
+    if (typeof comp === 'string') return comp;
+    if (typeof comp === 'number') return String(comp);
+    if (Array.isArray(comp)) {
+      return comp.map(extractTextFromComponent).join('');
+    }
+    let res = '';
+    if (comp.text) res += comp.text;
+    if (comp.extra) res += extractTextFromComponent(comp.extra);
+    if (comp.with) res += extractTextFromComponent(comp.with);
+    if (comp.translate) res += comp.translate;
+    return res;
+  }
+
   function stripColorCodes(text) {
     if (!text) return '';
-    return String(text).replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '');
+    let parsed = text;
+    if (typeof text === 'string' && (text.startsWith('{') || text.startsWith('['))) {
+      parsed = parseJsonComponent(text);
+    }
+    return String(parsed)
+      .replace(/§[0-9a-fk-or]/gi, '')
+      .replace(/&[0-9a-fk-or]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   // HÀM QUÉT SÂU TẤT CẢ TEXT TRONG ITEM VÀ NBT ĐỂ BẮT MỌI DÒNG LORE
@@ -1133,7 +1167,7 @@ function createBot() {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
           const val = obj[key];
           if (typeof val === 'string') {
-            texts.push(val);
+            texts.push(parseJsonComponent(val));
           } else if (typeof val === 'number') {
             texts.push(String(val));
           } else if (typeof val === 'object' && val !== null) {
@@ -1156,9 +1190,8 @@ function createBot() {
     if (!toggles.phoban || isManualStopped) return;
 
     const windowTitle = stripColorCodes(window.title || '');
-    addChatLog(`[GUI MỞ]: "${windowTitle}" (Tổng số ô: ${window.slots.length})`);
+    addChatLog(`[GUI MỞ]: "${windowTitle}" (Tổng ô container: ${window.inventoryStart || window.slots.length})`);
 
-    // Hàm quét ô trong GUI
     const scanAndClickSlot = async (attemptName) => {
       if (!bot || !bot.currentWindow || isManualStopped || !toggles.phoban) return false;
 
@@ -1166,6 +1199,7 @@ function createBot() {
       let targetSlot = -1;
       let matchedKeyword = '';
       let foundItemsCount = 0;
+      let row2Items = [];
 
       for (let i = 0; i < slotsToCheck; i++) {
         const item = window.slots[i];
@@ -1173,6 +1207,12 @@ function createBot() {
         foundItemsCount++;
 
         const fullText = getDeepItemText(item);
+        const itemName = stripColorCodes(item.customName || item.displayName || item.name || '');
+
+        // Chi tiết Hàng 2 (ô index 9 đến 17, tức Ô 10 -> Ô 18 trên GUI)
+        if (i >= 9 && i <= 17) {
+          row2Items.push(`Ô ${i + 1}: "${itemName}" [${fullText.slice(0, 45)}...]`);
+        }
 
         // Kiểm tra từng từ khóa trong phobanKeywords
         for (const kw of phobanKeywords) {
@@ -1185,17 +1225,23 @@ function createBot() {
         if (targetSlot !== -1) break;
       }
 
+      // Log chi tiết Hàng 2 ra Chat Dashboard để tiện theo dõi
+      if (row2Items.length > 0 && attemptName.includes('Lần 1')) {
+        addChatLog(`[PHÓ BẢN - HÀNG 2]: Thấy ${row2Items.length} vật phẩm ở Hàng 2 (ô 10-18): ${row2Items.join(' | ')}`);
+      }
+
       if (targetSlot !== -1) {
-        addChatLog(`[PHÓ BẢN - ${attemptName}]: Thấy từ khóa "${matchedKeyword}" tại ô ${targetSlot + 1}! Đang click...`);
+        const rowNum = Math.floor(targetSlot / 9) + 1;
+        addChatLog(`[PHÓ BẢN - ${attemptName}]: Tìm thấy từ khóa "${matchedKeyword}" tại Ô ${targetSlot + 1} (Hàng ${rowNum})! Đang click...`);
         try {
           await bot.clickWindow(targetSlot, 0, 0);
-          addChatLog(`[PHÓ BẢN]: Đã click thành công ô ${targetSlot + 1}`);
+          addChatLog(`[PHÓ BẢN]: Đã click thành công Ô ${targetSlot + 1} (Hàng ${rowNum})`);
           return true;
         } catch (err) {
           addErrorLog('Lỗi Click Ô Phó Bản', err.message);
         }
       } else {
-        addChatLog(`[PHÓ BẢN - ${attemptName}]: Đã quét ${foundItemsCount} vật phẩm nhưng chưa thấy từ khóa (${phobanKeywords.join(', ')})`);
+        addChatLog(`[PHÓ BẢN - ${attemptName}]: Đã quét ${foundItemsCount}/${slotsToCheck} ô GUI (bao gồm Hàng 2: ô 10-18) nhưng chưa thấy từ khóa (${phobanKeywords.join(', ')})`);
       }
       return false;
     };
