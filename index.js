@@ -36,6 +36,10 @@ const toggles = {
 let attackLeftIntervalMs = 500;
 let attackRightIntervalMs = 500;
 
+// CẤU HÌNH TỪ KHÓA TÌM KIẾM PHÓ BẢN
+let phobanKeywordsText = '1/5, 1 / 5, sẵn sàng, nhấp để vào, tham gia, phó bản';
+let phobanKeywords = ['1/5', '1 / 5', 'sẵn sàng', 'nhấp để vào', 'tham gia', 'phó bản'];
+
 // CẤU HÌNH CÁC Ô THANH CÔNG CỤ (Ô 1 -> Ô 9 tương ứng Index 0 -> 8)
 let hotbarEnabled = [false, false, false, false, false, false, false, false, false];
 let hotbarHoldDurationSec = 5; // Mặc định 5s
@@ -254,19 +258,14 @@ app.post('/api/update-hotbar', (req, res) => {
   res.redirect('/');
 });
 
-// ENDPOINT SETTING TỐC ĐỘ CLICK CHUỘT
-app.post('/api/update-click-speed', (req, res) => {
-  const leftSpeed = parseFloat(req.body.leftSpeed);
-  const rightSpeed = parseFloat(req.body.rightSpeed);
-
-  if (!isNaN(leftSpeed) && leftSpeed >= 0.1) {
-    attackLeftIntervalMs = Math.round(leftSpeed * 1000);
+// ENDPOINT CẬP NHẬT TỪ KHÓA TÌM PHÓ BẢN
+app.post('/api/update-phoban-keyword', (req, res) => {
+  const kw = req.body.keywords;
+  if (kw && kw.trim() !== '') {
+    phobanKeywordsText = kw.trim();
+    phobanKeywords = kw.split(',').map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
+    addChatLog(`[TỪ KHÓA PHÓ BẢN] Đã cập nhật: ${phobanKeywords.join(', ')}`);
   }
-  if (!isNaN(rightSpeed) && rightSpeed >= 0.1) {
-    attackRightIntervalMs = Math.round(rightSpeed * 1000);
-  }
-
-  restartLoops();
   res.redirect('/');
 });
 
@@ -672,6 +671,15 @@ app.get('/', (req, res) => {
               ${renderToggleBtn('quanghao', 'Quang Hào')}
               ${renderToggleBtn('ngoi', 'Mặt Ngồi / Rón Rén (5s/lần)')}
             </div>
+
+            <!-- CẤU HÌNH TỪ KHÓA AUTO PHÓ BẢN -->
+            <form action="/api/update-phoban-keyword" method="POST" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.15);">
+              <label>Từ khóa quét trong GUI Phó Bản (phân cách bằng dấu phẩy):</label>
+              <div class="input-group">
+                <input type="text" name="keywords" value="${phobanKeywordsText}" placeholder="ví dụ: 1/5, 1 / 5, sẵn sàng, tham gia" required>
+                <button type="submit" class="btn-save" style="margin-top:0; width:auto;">Lưu Từ Khóa</button>
+              </div>
+            </form>
           </div>
 
           <!-- ĐÁNH TRÁI / ĐÁNH PHẢI -->
@@ -1104,66 +1112,130 @@ function createBot() {
   // --- TÍNH NĂNG AUTO PHÓ BẢN QUA GÓI TIN GUI ---
   function stripColorCodes(text) {
     if (!text) return '';
-    return text.replace(/§[0-9a-fk-or]/gi, '');
+    return String(text).replace(/§[0-9a-fk-or]/gi, '').replace(/&[0-9a-fk-or]/gi, '');
+  }
+
+  // HÀM QUÉT SÂU TẤT CẢ TEXT TRONG ITEM VÀ NBT ĐỂ BẮT MỌI DÒNG LORE
+  function getDeepItemText(item) {
+    if (!item) return '';
+    let texts = [];
+    if (item.name) texts.push(item.name);
+    if (item.displayName) texts.push(item.displayName);
+    if (item.customName) texts.push(item.customName);
+
+    if (Array.isArray(item.customLore)) {
+      texts.push(...item.customLore);
+    }
+    
+    function extractStrings(obj) {
+      if (!obj || typeof obj !== 'object') return;
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          const val = obj[key];
+          if (typeof val === 'string') {
+            texts.push(val);
+          } else if (typeof val === 'number') {
+            texts.push(String(val));
+          } else if (typeof val === 'object' && val !== null) {
+            extractStrings(val);
+          }
+        }
+      }
+    }
+    
+    if (item.nbt) {
+      try {
+        extractStrings(item.nbt);
+      } catch (e) {}
+    }
+    
+    return stripColorCodes(texts.join(' ')).toLowerCase();
   }
 
   bot.on('windowOpen', async (window) => {
     if (!toggles.phoban || isManualStopped) return;
 
     const windowTitle = stripColorCodes(window.title || '');
-    addChatLog(`[GUI]: Đã mở bảng "${windowTitle}"`);
+    addChatLog(`[GUI MỞ]: "${windowTitle}" (Tổng số ô: ${window.slots.length})`);
 
-    // 1. TỰ ĐỘNG QUÉT CÁC Ô TRONG BẢNG PHÓ BẢN VÀ CHỌN Ô CHỨA "1/5"
-    if (windowTitle.includes('Phó Bản') || windowTitle.includes('Pho Ban') || windowTitle.includes('Dungeon')) {
+    // Hàm quét ô trong GUI
+    const scanAndClickSlot = async (attemptName) => {
+      if (!bot || !bot.currentWindow || isManualStopped || !toggles.phoban) return false;
+
+      const slotsToCheck = window.inventoryStart || window.slots.length;
       let targetSlot = -1;
+      let matchedKeyword = '';
+      let foundItemsCount = 0;
 
-      for (let i = 0; i < window.inventoryStart; i++) {
+      for (let i = 0; i < slotsToCheck; i++) {
         const item = window.slots[i];
         if (!item) continue;
+        foundItemsCount++;
 
-        let loreText = '';
-        if (item.nbt && item.nbt.value && item.nbt.value.display) {
-          const display = item.nbt.value.display.value;
-          if (display.Lore) {
-            loreText = JSON.stringify(display.Lore.value);
+        const fullText = getDeepItemText(item);
+
+        // Kiểm tra từng từ khóa trong phobanKeywords
+        for (const kw of phobanKeywords) {
+          if (kw && fullText.includes(kw)) {
+            targetSlot = i;
+            matchedKeyword = kw;
+            break;
           }
         }
-
-        const cleanLore = stripColorCodes(loreText);
-
-        if (cleanLore.includes('1/5')) {
-          targetSlot = i;
-          addChatLog(`[AUTO PHÓ BẢN]: Phát hiện phòng 1/5 tại ô ${i + 1}! Đang nhấp...`);
-          break;
-        }
+        if (targetSlot !== -1) break;
       }
 
       if (targetSlot !== -1) {
+        addChatLog(`[PHÓ BẢN - ${attemptName}]: Thấy từ khóa "${matchedKeyword}" tại ô ${targetSlot + 1}! Đang click...`);
         try {
           await bot.clickWindow(targetSlot, 0, 0);
+          addChatLog(`[PHÓ BẢN]: Đã click thành công ô ${targetSlot + 1}`);
+          return true;
         } catch (err) {
           addErrorLog('Lỗi Click Ô Phó Bản', err.message);
         }
+      } else {
+        addChatLog(`[PHÓ BẢN - ${attemptName}]: Đã quét ${foundItemsCount} vật phẩm nhưng chưa thấy từ khóa (${phobanKeywords.join(', ')})`);
       }
-    }
+      return false;
+    };
 
-    // 2. TỰ ĐỘNG BẤM "ACCEPT" HOẶC "ĐỒNG Ý" TRONG BẢNG XÁC NHẬN (NẾU CÓ)
-    if (windowTitle.includes('Are you sure?') || windowTitle.includes('Xác nhận') || windowTitle.includes('Xac nhan')) {
-      for (let i = 0; i < window.inventoryStart; i++) {
-        const item = window.slots[i];
-        if (!item) continue;
+    // Đăng ký sự kiện cập nhật slot real-time
+    const onSlotUpdate = async (slot, oldItem, newItem) => {
+      if (!toggles.phoban || isManualStopped) return;
+      if (newItem && slot < (window.inventoryStart || window.slots.length)) {
+        await scanAndClickSlot('Realtime Update');
+      }
+    };
+    window.on('updateSlot', onSlotUpdate);
 
-        const itemName = stripColorCodes(item.displayName || item.customName || '');
-        if (itemName.toLowerCase().includes('accept') || itemName.toLowerCase().includes('đồng ý') || itemName.toLowerCase().includes('dong y')) {
-          addChatLog(`[AUTO PHÓ BẢN]: Bấm nút Accept (ô ${i + 1})`);
-          try {
-            await bot.clickWindow(i, 0, 0);
-          } catch (err) {
-            addErrorLog('Lỗi Click Accept', err.message);
+    // Thử quét nhiều lần với khoảng hoãn tăng dần để đảm bảo Server kịp đồng bộ Items
+    setTimeout(() => scanAndClickSlot('Lần 1 - Immediate'), 100);
+    setTimeout(() => scanAndClickSlot('Lần 2 - 500ms'), 500);
+    setTimeout(() => scanAndClickSlot('Lần 3 - 1000ms'), 1000);
+    setTimeout(() => scanAndClickSlot('Lần 4 - 1800ms'), 1800);
+
+    // TỰ ĐỘNG BẤM "ACCEPT" HOẶC "ĐỒNG Ý" TRONG BẢNG XÁC NHẬN (NẾU CÓ)
+    if (windowTitle.toLowerCase().includes('are you sure') || windowTitle.toLowerCase().includes('xác nhận') || windowTitle.toLowerCase().includes('xac nhan')) {
+      setTimeout(async () => {
+        if (!bot || !bot.currentWindow || isManualStopped) return;
+        const slotsToCheck = window.inventoryStart || window.slots.length;
+        for (let i = 0; i < slotsToCheck; i++) {
+          const item = window.slots[i];
+          if (!item) continue;
+
+          const itemName = getDeepItemText(item);
+          if (itemName.includes('accept') || itemName.includes('đồng ý') || itemName.includes('dong y')) {
+            addChatLog(`[AUTO PHÓ BẢN]: Bấm nút Accept/Đồng ý (ô ${i + 1})`);
+            try {
+              await bot.clickWindow(i, 0, 0);
+            } catch (err) {
+              addErrorLog('Lỗi Click Accept', err.message);
+            }
+            break;
           }
-          break;
         }
-      }
+      }, 500);
     }
   });
 
