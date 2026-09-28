@@ -18,11 +18,12 @@ let BOT_PORT = parseInt(process.env.BOT_PORT) || 25565;
 // --- BẬT/TẮT CÁC TÍNH NĂNG TOGGLE ---
 const toggles = {
   afkmode: false,
+  phoban: false, // MỚI: Tự động phó bản (/phoban 5s/lần & quét GUI 1/5)
   thien: false,
-  quylay: false, // Đã đổi từ quylai thành quylay
+  quylay: false,
   dinhthan: false,
   quanghao: false,
-  ngoi: false,     // MỚI: Nút ngồi (Sneak)
+  ngoi: false,     // Nút ngồi (Sneak)
   attackLeft: false,
   attackRight: false,
   skill1: false,
@@ -61,6 +62,7 @@ let respawnTimer = null;
 let commandResponseTimer = null;
 
 // TIMERS DÀNH CHO CÁC TÍNH NĂNG ĐỊNH KỲ
+let phobanInterval = null; // MỚI: Timer lặp lại lệnh /phoban mỗi 5s
 let quylayInterval = null;
 let ngoiInterval = null;
 let attackLeftInterval = null;
@@ -199,6 +201,7 @@ app.get('/api/toggle/:feature', (req, res) => {
     addChatLog(`[CÀI ĐẶT] ${feat.toUpperCase()} ➔ ${toggles[feat] ? 'BẬT' : 'TẮT'}`);
 
     if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+      if (feat === 'phoban' && toggles.phoban) safeChat('/phoban');
       if (feat === 'afkmode') safeChat(toggles[feat] ? '/afkmode vao' : '/afkmode ra');
       if (feat === 'thien') safeChat('/thien');
       if (feat === 'quylay') safeChat('/quylay');
@@ -343,7 +346,6 @@ app.get('/', (req, res) => {
           background-attachment: fixed;
         }
 
-        /* NÚT THU GỌN / HIỆN BẢNG CONTROL GÓC MÀN HÌNH */
         .toggle-ui-btn {
           position: fixed;
           bottom: 20px;
@@ -539,13 +541,11 @@ app.get('/', (req, res) => {
         }
 
         window.addEventListener('DOMContentLoaded', () => {
-          // Khôi phục trạng thái thu gọn UI
           if (localStorage.getItem('ui_collapsed') === 'true') {
             document.getElementById('main-dashboard').style.display = 'none';
             document.getElementById('toggle-ui-text').textContent = 'Hiện Bảng Control';
           }
 
-          // Tự động làm mới khi không gõ phím (Mỗi 10s để tiết kiệm tài nguyên Server)
           setInterval(() => { 
             const activeEl = document.activeElement;
             if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) { 
@@ -642,6 +642,7 @@ app.get('/', (req, res) => {
           <div class="card">
             <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
             <div class="btn-group-responsive">
+              ${renderToggleBtn('phoban', 'Auto Phó Bản (5s/lần)')}
               ${renderToggleBtn('afkmode', 'AFK Mode')}
               ${renderToggleBtn('thien', 'Thiền')}
               ${renderToggleBtn('quylay', 'Quỳ Lạy')}
@@ -745,6 +746,7 @@ app.get('/', (req, res) => {
 app.listen(port, () => console.log(`[HTTP SERVER] Running on port ${port}`));
 
 function stopFeatureLoops() {
+  if (phobanInterval) { clearInterval(phobanInterval); phobanInterval = null; }
   if (quylayInterval) { clearInterval(quylayInterval); quylayInterval = null; }
   if (ngoiInterval) { clearInterval(ngoiInterval); ngoiInterval = null; }
   if (attackLeftInterval) { clearInterval(attackLeftInterval); attackLeftInterval = null; }
@@ -757,6 +759,16 @@ function restartLoops() {
   stopFeatureLoops();
 
   if (!bot || !bot.entity || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
+
+  // 0. AUTO PHÓ BẢN: Gõ /phoban liên tục mỗi 5s để làm mới GUI ngay cả khi GUI đang hiện
+  if (toggles.phoban) {
+    safeChat('/phoban'); // Gõ ngay lập tức
+    phobanInterval = setInterval(() => {
+      if (toggles.phoban && bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        safeChat('/phoban');
+      }
+    }, 5000);
+  }
 
   // 1. Quỳ lạy lặp lại mỗi 47s khi công tắc đang BẬT
   if (toggles.quylay) {
@@ -1048,6 +1060,72 @@ function createBot() {
           }
         }
       }, 15000);
+    }
+  });
+
+  // --- TÍNH NĂNG AUTO PHÓ BẢN QUA GÓI TIN GUI ---
+  function stripColorCodes(text) {
+    if (!text) return '';
+    return text.replace(/§[0-9a-fk-or]/gi, '');
+  }
+
+  bot.on('windowOpen', async (window) => {
+    if (!toggles.phoban || isManualStopped) return;
+
+    const windowTitle = stripColorCodes(window.title || '');
+    addChatLog(`[GUI]: Đã mở bảng "${windowTitle}"`);
+
+    // 1. TỰ ĐỘNG QUÉT CÁC Ô TRONG BẢNG PHÓ BẢN VÀ CHỌN Ô CHỨA "1/5"
+    if (windowTitle.includes('Phó Bản') || windowTitle.includes('Pho Ban') || windowTitle.includes('Dungeon')) {
+      let targetSlot = -1;
+
+      for (let i = 0; i < window.inventoryStart; i++) {
+        const item = window.slots[i];
+        if (!item) continue;
+
+        let loreText = '';
+        if (item.nbt && item.nbt.value && item.nbt.value.display) {
+          const display = item.nbt.value.display.value;
+          if (display.Lore) {
+            loreText = JSON.stringify(display.Lore.value);
+          }
+        }
+
+        const cleanLore = stripColorCodes(loreText);
+
+        if (cleanLore.includes('1/5')) {
+          targetSlot = i;
+          addChatLog(`[AUTO PHÓ BẢN]: Phát hiện phòng 1/5 tại ô ${i + 1}! Đang nhấp...`);
+          break;
+        }
+      }
+
+      if (targetSlot !== -1) {
+        try {
+          await bot.clickWindow(targetSlot, 0, 0);
+        } catch (err) {
+          addErrorLog('Lỗi Click Ô Phó Bản', err.message);
+        }
+      }
+    }
+
+    // 2. TỰ ĐỘNG BẤM "ACCEPT" HOẶC "ĐỒNG Ý" TRONG BẢNG XÁC NHẬN (NẾU CÓ)
+    if (windowTitle.includes('Are you sure?') || windowTitle.includes('Xác nhận') || windowTitle.includes('Xac nhan')) {
+      for (let i = 0; i < window.inventoryStart; i++) {
+        const item = window.slots[i];
+        if (!item) continue;
+
+        const itemName = stripColorCodes(item.displayName || item.customName || '');
+        if (itemName.toLowerCase().includes('accept') || itemName.toLowerCase().includes('đồng ý') || itemName.toLowerCase().includes('dong y')) {
+          addChatLog(`[AUTO PHÓ BẢN]: Bấm nút Accept (ô ${i + 1})`);
+          try {
+            await bot.clickWindow(i, 0, 0);
+          } catch (err) {
+            addErrorLog('Lỗi Click Accept', err.message);
+          }
+          break;
+        }
+      }
     }
   });
 
