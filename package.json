@@ -1,16 +1,16 @@
 {
-  "name": "minecraft-afk-bot",
-  "version": "1.0.0",
-  "description": "Minecraft AFK Bot with Web Dashboard optimized for Render.com",
-  "main": "index.js",
-  "scripts": {
-    "start": "node --expose-gc index.js"
+  "tên":"minecraft-afk-bot",
+  "phiên bản":"1.0.0",
+  "Sự miêu tả":"Bot AFK Minecraft với bảng điều khiển web được tối ưu hóa cho Render.com",
+  "chủ yếu":"index.js",
+  "kịch bản": {
+    "bắt đầu":"node --expose-gc index.js"
   },
-  "dependencies": {
-    "express": "^4.19.2",
-    "mineflayer": "^4.20.1"
+  "các phụ thuộc": {
+    "thể hiện":"^4.19.2",
+    "máy dò mìn":"^4.20.1"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "động cơ": {
+    "nút":">=18.0.0"
   }
 }
