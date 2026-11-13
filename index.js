@@ -425,4 +425,500 @@ app.get('/', (req, res) => {
             <form action="/api/update-hotbar" method="POST">
               <div><label>Thời gian cầm mỗi ô (giây):</label><input type="number" min="1" name="duration" value="${hotbarHoldDurationSec}" required></div>
               <div style="margin-top: 8px;"><label>Chọn ô cần luân chuyển:</label></div>
-              <div class="hot
+              <div class="hotbar-grid">
+                ${
+  [1,2,3,4,5,6,7,8,9].map(function(num, i) {
+    return '<div class="hotbar-item"><label style="margin-bottom:2px;">Ô ' + num + '</label><input type="checkbox" name="slot_' + i + '" ' + (hotbarEnabled[i] ? 'checked' : '') + '></div>';
+  }).join('')
+}
+              </div>
+              <button type="submit" class="btn-save">Lưu Thiết Lập Ô Cầm</button>
+            </form>
+          </div>
+
+          <!-- BẬT/TẮT TÍNH NĂNG AUTO -->
+          <div class="card">
+            <h3>Bật / Tắt Lệnh Tự Động & Hoạt Động</h3>
+            <div class="btn-group-responsive">
+              ${renderToggleBtn('afkmode', 'AFK Mode')}
+              ${renderToggleBtn('thien', 'Thiền')}
+              ${renderToggleBtn('quylay', 'Quỳ Lạy')}
+              ${renderToggleBtn('dinhthan', 'Định Thân')}
+              ${renderToggleBtn('quanghao', 'Quang Hào')}
+              ${renderToggleBtn('ngoi', 'Ngồi / Rón Rén')}
+            </div>
+          </div>
+
+          <!-- ĐÁNH TRÁI / PHẢI -->
+          <div class="card">
+            <h3>Đánh Liên Tục (Click Mouse)</h3>
+            <div class="btn-group-responsive" style="margin-bottom: 10px;">
+              ${renderToggleBtn('attackLeft', 'Đánh Trái')}
+              ${renderToggleBtn('attackRight', 'Đánh Phải')}
+            </div>
+            <form action="/api/update-click-speed" method="POST" class="form-grid">
+              <div><label>Tốc độ Trái (giây):</label><input type="number" step="0.1" min="0.1" name="leftSpeed" value="${(attackLeftIntervalMs / 1000).toFixed(1)}"></div>
+              <div><label>Tốc độ Phải (giây):</label><input type="number" step="0.1" min="0.1" name="rightSpeed" value="${(attackRightIntervalMs / 1000).toFixed(1)}"></div>
+              <div style="grid-column: 1 / -1;"><button type="submit" class="btn-save">Lưu Tốc Độ Click</button></div>
+            </form>
+          </div>
+
+          <!-- SKILL -->
+          <div class="card">
+            <h3>Khu Vực Skill</h3>
+            <div class="btn-group-responsive">
+              ${renderToggleBtn('skill1', 'Kỹ Năng 1')}
+              ${renderToggleBtn('skill2', 'Kỹ Năng 2')}
+              ${renderToggleBtn('skill3', 'Kỹ Năng 3')}
+            </div>
+          </div>
+
+          <!-- CẤU HÌNH TÀI KHOẢN & PROXY -->
+          <form action="/api/update-config" method="POST">
+            <div class="card">
+              <h3>Cấu Hình Đăng Nhập, Server & Proxy</h3>
+              <div class="form-grid">
+                <div><label>Tên Nhân Vật:</label><input type="text" name="username" value="${BOT_USERNAME}" required autocomplete="off"></div>
+                <div><label>Mật Khẩu:</label><input type="password" name="password" value="${BOT_PASSWORD}" required autocomplete="off"></div>
+              </div>
+              <div style="margin-top: 10px;">
+                <label>IP Server (Host:Port):</label>
+                <input type="text" name="host" value="${BOT_HOST}${BOT_PORT && BOT_PORT !== 25565 ? ':' + BOT_PORT : ''}" required autocomplete="off">
+              </div>
+              <div style="margin-top: 10px;">
+                <label>SOCKS5 Proxy (Bỏ trống nếu dùng trực tiếp Render IP):</label>
+                <input type="text" name="proxy" value="${BOT_PROXY}" placeholder="ip:port hoặc username:password@ip:port" autocomplete="off">
+              </div>
+              <button type="submit" class="btn-save">Lưu Cấu Hình & Kết Nối Lại</button>
+            </div>
+          </form>
+
+          <div class="card">
+            <h3>Nhật Ký Nhắc Tên [${BOT_USERNAME}]</h3>
+            <div class="kiru-box">
+              ${botMentionLogs.length > 0 ? botMentionLogs.map(function(k) { return "<div>[" + k.time + "] " + k.text + "</div>"; }).join('') : '<i>Chưa có tin nhắn nào...</i>'}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h3>Lịch Sử Ping</h3>
+            <p style="word-break: break-all; margin:0;"><code>${pingLogs.length > 0 ? pingLogs.map(function(p) { return "[" + p.time + ":" + p.ping + "ms]"; }).join(' ➔ ') : 'Đang thu thập...'}</code></p>
+          </div>
+          <div class="card">
+            <h3>Chat Server (Realtime)</h3>
+            <div class="chat-box">
+              ${serverChatLogs.length > 0 ? serverChatLogs.map(function(l) { return "<div>" + l + "</div>"; }).join('') : '<i>Chưa có nhật ký...</i>'}
+            </div>
+          </div>
+          <div class="card">
+            <h3>Nhật Ký Lỗi Phát Sinh</h3>
+            <div class="error-box">
+              ${errorLogs.length > 0 ? errorLogs.map(function(e) { return "<div>[" + e.time + "] <b>[" + e.type + "]</b>: " + e.details + "</div>"; }).join('') : '<div style="color:var(--accent-green);">Không có lỗi!</div>'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+app.listen(port, () => console.log(`[HTTP SERVER] Running on port ${port}`));
+
+function stopFeatureLoops() {
+  if (quylayInterval) { clearInterval(quylayInterval); quylayInterval = null; }
+  if (ngoiInterval) { clearInterval(ngoiInterval); ngoiInterval = null; }
+  if (attackLeftInterval) { clearInterval(attackLeftInterval); attackLeftInterval = null; }
+  if (attackRightInterval) { clearInterval(attackRightInterval); attackRightInterval = null; }
+  if (skillLoopInterval) { clearInterval(skillLoopInterval); skillLoopInterval = null; }
+  if (hotbarLoopInterval) { clearInterval(hotbarLoopInterval); hotbarLoopInterval = null; }
+}
+
+function restartLoops() {
+  stopFeatureLoops();
+  if (!bot || !bot.entity || !bot._client || bot._client.state !== 'play' || isManualStopped) return;
+
+  if (toggles.quylay) {
+    quylayInterval = setInterval(() => { if (toggles.quylay) safeChat('/quylay'); }, 47000);
+  }
+  if (toggles.ngoi) {
+    ngoiInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        try {
+          bot.setControlState('sneak', true);
+          setTimeout(() => { if (bot && bot.entity) bot.setControlState('sneak', false); }, 1200);
+        } catch (e) {}
+      }
+    }, 5000);
+  }
+  if (toggles.attackLeft) {
+    attackLeftInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        try { bot.swingArm('right'); } catch (e) {}
+      }
+    }, attackLeftIntervalMs);
+  }
+  if (toggles.attackRight) {
+    attackRightInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        try { bot.activateItem(); } catch (e) {}
+      }
+    }, attackRightIntervalMs);
+  }
+  if (toggles.skill1 || toggles.skill2 || toggles.skill3) {
+    skillLoopInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && !isManualStopped) {
+        if (toggles.skill1) safeChat('/kinang_1');
+        if (toggles.skill2) safeChat('/kinang_2');
+        if (toggles.skill3) safeChat('/kinang_3');
+      }
+    }, 10000);
+  }
+
+  const activeSlots = hotbarEnabled.map((enabled, idx) => enabled ? idx : -1).filter(idx => idx !== -1);
+  if (activeSlots.length === 1) {
+    try { bot.setQuickBarSlot(activeSlots[0]); } catch (e) {}
+  } else if (activeSlots.length > 1) {
+    hotbarLoopInterval = setInterval(() => {
+      if (bot && bot.entity && bot._client && bot._client.state === 'play' && !isManualStopped) {
+        currentHotbarCycleIndex = (currentHotbarCycleIndex + 1) % activeSlots.length;
+        try { bot.setQuickBarSlot(activeSlots[currentHotbarCycleIndex]); } catch (e) {}
+      }
+    }, hotbarHoldDurationSec * 1000);
+  }
+}
+
+function cleanupBot() {
+  isAutoActionRunning = false;
+  currentCoords = 'Đang xác định...';
+  currentPing = 0;
+
+  stopFeatureLoops(); 
+
+  if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
+  if (antiAfkTimeout) { clearTimeout(antiAfkTimeout); antiAfkTimeout = null; }
+
+  [ramGcInterval, posCheckInterval, watchdogInterval, pingInterval].forEach(i => i && clearInterval(i));
+  [reconnectTimeout, loginTimer1, loginTimer2, respawnTimer, commandResponseTimer].forEach(t => t && clearTimeout(t));
+
+  if (bot) {
+    try {
+      bot.removeAllListeners();
+      if (bot._client) bot._client.removeAllListeners();
+      bot.clearControlStates();
+      bot.end(); 
+    } catch (e) {}
+    bot = null;
+  }
+
+  if (global.gc) {
+    try { global.gc(); } catch (e) {}
+  }
+}
+
+function scheduleNextAction() {
+  if (actionTimeout) { clearTimeout(actionTimeout); actionTimeout = null; }
+  if (isManualStopped || !bot || !bot.entity || !bot._client) {
+    isAutoActionRunning = false;
+    return;
+  }
+  isAutoActionRunning = true;
+  lastActionTime = Date.now();
+  const currentBot = bot;
+
+  try {
+    const actionType = Math.floor(Math.random() * 3);
+    if (actionType === 0) currentBot.swingArm('right');
+    else if (actionType === 1) {
+      currentBot.setControlState('sneak', true);
+      setTimeout(() => { if (bot === currentBot && bot.entity) bot.setControlState('sneak', false); }, 200);
+    } else {
+      currentBot.activateItem();
+    }
+  } catch (err) {}
+
+  actionTimeout = setTimeout(scheduleNextAction, Math.floor(5000 + Math.random() * 5000));
+}
+
+function scheduleRandomRotation() {
+  if (antiAfkTimeout) clearTimeout(antiAfkTimeout);
+  if (isManualStopped) return;
+
+  antiAfkTimeout = setTimeout(() => {
+    if (bot && bot.entity && bot.health > 0 && bot._client && bot._client.state === 'play') {
+      try {
+        bot.look(bot.entity.yaw + (Math.random() - 0.5) * 0.3, bot.entity.pitch + (Math.random() - 0.5) * 0.1, true);
+      } catch (e) {}
+    }
+    scheduleRandomRotation();
+  }, Math.floor(15000 + Math.random() * 20000));
+}
+
+function executeActiveFeaturesOnSpawn() {
+  if (!bot || !bot.entity || !bot._client || isManualStopped) return;
+  let delay = 1000;
+  
+  if (toggles.afkmode) { setTimeout(() => safeChat('/afkmode vao'), delay); delay += 1200; }
+  if (toggles.thien) { setTimeout(() => safeChat('/thien'), delay); delay += 1200; }
+  if (toggles.quylay) { setTimeout(() => safeChat('/quylay'), delay); delay += 1200; }
+  if (toggles.dinhthan) { setTimeout(() => safeChat('/dinhthan'), delay); delay += 1200; }
+  if (toggles.quanghao) { setTimeout(() => safeChat('/quanghao'), delay); delay += 1200; }
+
+  setTimeout(() => { restartLoops(); }, delay + 500);
+}
+
+function createBot() {
+  if (isManualStopped) return;
+  cleanupBot();
+  isFirstSpawn = true;
+  lastTimeAge = 0;
+  lastTimeAgeUpdate = Date.now();
+
+  const currentOptions = {
+    host: BOT_HOST,
+    port: BOT_PORT,
+    username: BOT_USERNAME,
+    hideErrors: false,
+    checkTimeoutInterval: 60 * 1000, 
+    keepAlive: true,
+    physicsEnabled: true,
+    viewDistance: 'tiny'
+  };
+
+  // NẾU CÓ CẤU HÌNH PROXY SOCKS5 -> SỬ DỤNG PROXY ĐỂ TRÁNH LỖI TRÙNG IP TRÊN RENDER
+  if (BOT_PROXY && BOT_PROXY.trim() !== '') {
+    currentOptions.connect = (client) => {
+      let proxyHost = BOT_PROXY;
+      let proxyPort = 1080;
+      let proxyUser = undefined;
+      let proxyPass = undefined;
+
+      try {
+        if (BOT_PROXY.includes('@')) {
+          const parts = BOT_PROXY.split('@');
+          const auth = parts[0].split(':');
+          proxyUser = auth[0];
+          proxyPass = auth[1];
+          const serverParts = parts[1].split(':');
+          proxyHost = serverParts[0];
+          proxyPort = parseInt(serverParts[1]) || 1080;
+        } else if (BOT_PROXY.includes(':')) {
+          const parts = BOT_PROXY.split(':');
+          proxyHost = parts[0];
+          proxyPort = parseInt(parts[1]) || 1080;
+        }
+
+        SocksClient.createConnection({
+          proxy: {
+            host: proxyHost,
+            port: proxyPort,
+            type: 5,
+            userId: proxyUser,
+            password: proxyPass
+          },
+          command: 'connect',
+          destination: {
+            host: BOT_HOST,
+            port: BOT_PORT
+          }
+        }, (err, info) => {
+          if (err) {
+            addErrorLog('Proxy Error', err.message);
+            client.emit('error', err);
+            return;
+          }
+          client.setSocket(info.socket);
+          client.emit('connect');
+        });
+      } catch (proxyErr) {
+        addErrorLog('Proxy Parse Error', proxyErr.message);
+      }
+    };
+  }
+
+  console.log(`
+[HỆ THỐNG] Kết nối đến ${BOT_HOST}:${BOT_PORT} (Proxy: ${BOT_PROXY || 'Không'}) với tên [${BOT_USERNAME}]...`);
+
+  try {
+    bot = mineflayer.createBot(currentOptions);
+    bot.setMaxListeners(0);
+
+    if (bot._client) {
+      bot._client.setMaxListeners(0);
+      bot._client.on('error', (err) => {
+        addErrorLog('Socket Error', err.message || err.code || 'Lỗi TCP Socket');
+      });
+    }
+  } catch (err) {
+    addErrorLog('Init Failed', err.message);
+    handleReconnect();
+    return;
+  }
+
+  bot.on('spawn', () => {
+    console.log('[LOG] Bot đã vào game!');
+    addChatLog('Kết nối ổn định thành công!');
+    triggerChatWindow(12000);
+    consecutiveFailures = 0;
+    currentReconnectDelay = 10000;
+
+    if (isFirstSpawn) {
+      isFirstSpawn = false;
+
+      loginTimer1 = setTimeout(() => {
+        if (bot && bot._client && !isManualStopped) {
+          bot.chat(`/l ${BOT_PASSWORD}`);
+          triggerChatWindow(4000);
+        }
+      }, 3500);
+
+      loginTimer2 = setTimeout(() => {
+        if (bot && bot.entity && bot._client && !isManualStopped) {
+          executeActiveFeaturesOnSpawn();
+          scheduleNextAction();
+          scheduleRandomRotation();
+        }
+      }, 7000);
+
+      ramGcInterval = setInterval(() => {
+        if (bot && bot.entities) {
+          const myPos = bot.entity ? bot.entity.position : null;
+          Object.keys(bot.entities).forEach(id => {
+            const ent = bot.entities[id];
+            if (!ent || !myPos || (ent.position && ent.position.distanceTo(myPos) > 12) || ent.id !== bot.entity?.id) {
+              delete bot.entities[id];
+            }
+          });
+        }
+        if (global.gc) { try { global.gc(); } catch (e) {} }
+      }, 15000);
+
+      pingInterval = setInterval(() => {
+        if (bot && bot.player) {
+          currentPing = bot.player.ping || 0;
+          addPingLog(currentPing);
+        }
+      }, 10000);
+
+      posCheckInterval = setInterval(() => {
+        if (bot && bot.entity && bot.entity.position) {
+          const pos = bot.entity.position;
+          currentCoords = `X: ${pos.x.toFixed(1)}, Y: ${pos.y.toFixed(1)}, Z: ${pos.z.toFixed(1)}`;
+        }
+      }, 5000);
+
+      watchdogInterval = setInterval(() => {
+        if (!bot || isManualStopped) return;
+        if (!isAutoActionRunning || Date.now() - lastActionTime > 20000) scheduleNextAction();
+
+        if (bot.time) {
+          if (bot.time.age === lastTimeAge) {
+            if (Date.now() - lastTimeAgeUpdate > 45000) {
+              addErrorLog('Watchdog', 'Kẹt Packet thế giới > 45s. Tiến hành Reconnect...');
+              handleReconnect();
+            }
+          } else {
+            lastTimeAge = bot.time.age;
+            lastTimeAgeUpdate = Date.now();
+          }
+        }
+      }, 15000);
+    }
+  });
+
+  bot.on('death', () => {
+    addChatLog('Bot tử vong! Chờ hồi sinh...');
+    addErrorLog('Event Chết', 'Bot tử vong');
+
+    respawnTimer = setTimeout(() => {
+      if (bot && bot._client && !isManualStopped) {
+        try { bot.respawn(); } catch (e) {}
+      }
+      setTimeout(() => {
+        if (bot && bot.entity && bot._client && !isManualStopped) {
+          executeActiveFeaturesOnSpawn();
+          scheduleNextAction();
+          scheduleRandomRotation();
+        }
+      }, 4500);
+    }, 4000);
+  });
+
+  bot.on('message', (message) => {
+    try {
+      const text = message.toString().trim();
+      if (!text) return;
+      const lowerText = text.toLowerCase();
+
+      if (lowerText.includes(BOT_USERNAME.toLowerCase())) {
+        addBotMentionLog(text);
+      }
+
+      if (text.includes('█') || lowerText.includes('hồi chiêu') || lowerText.includes('cooldown')) return;
+
+      addChatLog(text);
+    } catch (e) {}
+  });
+
+  bot.on('end', (reason) => {
+    stopFeatureLoops();
+    addErrorLog('Mất Kết Nối (End)', `Server ngắt socket: ${reason}`);
+    handleReconnect();
+  });
+
+  bot.on('error', (err) => {
+    stopFeatureLoops();
+    addErrorLog('Mineflayer Error', err.message || err.toString());
+  });
+
+  bot.on('kicked', (reason) => {
+    stopFeatureLoops();
+    const reasonStr = typeof reason === 'string' ? reason : JSON.stringify(reason);
+    addErrorLog('Bị Server Kick', reasonStr);
+    
+    if (reasonStr.includes('IP') || reasonStr.includes('đã có người') || reasonStr.includes('LƯU DỮ LIỆU')) {
+      currentReconnectDelay = 25000;
+    }
+    handleReconnect();
+  });
+}
+
+function handleReconnect() {
+  if (isManualStopped || isReconnecting) return;
+  isReconnecting = true;
+  cleanupBot();
+
+  consecutiveFailures++;
+
+  if (consecutiveFailures >= 12) {
+    addErrorLog('CẢNH BÁO NẶNG', 'Mất kết nối liên tục 12 lần. Khởi động lại App...');
+    setTimeout(() => { process.exit(1); }, 3000);
+    return;
+  }
+
+  const jitter = Math.floor(Math.random() * 3000);
+  const waitTime = currentReconnectDelay + jitter;
+
+  console.log(`Chờ ${Math.round(waitTime / 1000)}s để tái kết nối...`);
+  
+  reconnectTimeout = setTimeout(() => {
+    isReconnecting = false;
+    currentReconnectDelay = Math.min(currentReconnectDelay * 1.25, 30000);
+    createBot();
+  }, waitTime);
+}
+
+createBot();
+
+process.on('uncaughtException', (err) => {
+  addErrorLog('Uncaught Exception', `${err.message} (${err.code || 'NO_CODE'})`);
+  try { handleReconnect(); } catch(e) {}
+});
+
+process.on('unhandledRejection', (reason) => {
+  addErrorLog('Unhandled Rejection', String(reason));
+});
+
+
